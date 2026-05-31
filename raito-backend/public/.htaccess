@@ -1,0 +1,8 @@
+Options -Indexes
+
+SetEnvIf Authorization "(.+)" HTTP_AUTHORIZATION=$1
+
+RewriteEngine On
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^ index.php [QSA,L]

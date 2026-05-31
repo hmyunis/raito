@@ -1,0 +1,4 @@
+.env
+.env.production
+storage/logs/*.log
+!storage/logs/.gitkeep
