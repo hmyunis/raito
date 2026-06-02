@@ -1,0 +1,47 @@
+# Gradle and Kotlin build state
+.gradle/
+.kotlin/
+build/
+**/build/
+
+# Android Studio and IntelliJ local state
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Android generated/native build output
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Packaged app artifacts
+*.apk
+*.ap_
+*.aab
+*.aar
+app/release/
+app/debug/
+outputs/
+
+# Local machine config and environment files
+local.properties
+.env
+.env.*
+!.env.example
+
+# Signing keys and local certificates
+*.jks
+*.keystore
+debug.keystore
+
+# Logs and reports
+*.log
+lint-results*.html
+lint-results*.xml
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
