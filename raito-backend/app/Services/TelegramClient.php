@@ -35,13 +35,42 @@ final class TelegramClient
         return $this->api('sendMessage', $payload);
     }
 
+    public function editMessageText(int|string $chatId, int $messageId, string $text, ?array $replyMarkup = null): array
+    {
+        $payload = [
+            'chat_id' => $chatId,
+            'message_id' => $messageId,
+            'text' => $text,
+            'disable_web_page_preview' => true,
+        ];
+
+        if ($replyMarkup !== null) {
+            $payload['reply_markup'] = $replyMarkup;
+        }
+
+        return $this->api('editMessageText', $payload);
+    }
+
+    public function answerCallbackQuery(string $callbackQueryId, ?string $text = null): array
+    {
+        $payload = [
+            'callback_query_id' => $callbackQueryId,
+        ];
+
+        if ($text !== null && $text !== '') {
+            $payload['text'] = $text;
+        }
+
+        return $this->api('answerCallbackQuery', $payload);
+    }
+
     public function setWebhook(string $url, string $secretToken): array
     {
         return $this->api('setWebhook', [
             'url' => $url,
             'secret_token' => $secretToken,
             'drop_pending_updates' => false,
-            'allowed_updates' => ['message'],
+            'allowed_updates' => ['message', 'callback_query'],
         ]);
     }
 

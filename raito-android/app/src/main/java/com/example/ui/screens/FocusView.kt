@@ -39,6 +39,7 @@ fun FocusView(
   val activeTask by viewModel.activeTask.collectAsState()
   val tasks by viewModel.tasks.collectAsState()
   val chapters by viewModel.chapters.collectAsState()
+  val stats by viewModel.stats.collectAsState()
 
   val showPenDipAnimation by viewModel.showPenDipAnimation.collectAsState()
   val showInkDropAnimation by viewModel.showInkDropAnimation.collectAsState()
@@ -286,14 +287,11 @@ fun FocusView(
                     .height(IntrinsicSize.Min),
                   verticalAlignment = Alignment.CenterVertically
                 ) {
-                  val accentColor = when (selectedChapterForFocus?.auraInk) {
-                    "Red" -> AnimeRed
-                    "Teal" -> AnimeTeal
-                    "Purple" -> AnimePurple
-                    "Pink" -> AnimePink
-                    "Black" -> MaterialTheme.colorScheme.onBackground
-                    else -> InkGrayLight
-                  }
+                  val accentColor = resolveChapterAccentColor(
+                    chapter = selectedChapterForFocus,
+                    bucketColoringEnabled = stats.bucketColoring,
+                    fallbackColor = MaterialTheme.colorScheme.primary
+                  )
                   Box(
                     modifier = Modifier
                       .fillMaxHeight()
@@ -352,14 +350,11 @@ fun FocusView(
                   )
                 } else {
                   chapters.forEach { chapter ->
-                    val chapterColor = when (chapter.auraInk) {
-                      "Red" -> AnimeRed
-                      "Teal" -> AnimeTeal
-                      "Purple" -> AnimePurple
-                      "Pink" -> AnimePink
-                      "Black" -> MaterialTheme.colorScheme.onBackground
-                      else -> InkGrayLight
-                    }
+                    val chapterColor = resolveChapterAccentColor(
+                      chapter = chapter,
+                      bucketColoringEnabled = stats.bucketColoring,
+                      fallbackColor = MaterialTheme.colorScheme.primary
+                    )
                     DropdownMenuItem(
                       text = {
                         Row(
@@ -834,8 +829,7 @@ fun FocusView(
           )
         }
 
-        val stats by viewModel.stats.collectAsState()
-        val reward = viewModel.getXpReward("focus")
+          val reward = viewModel.getXpReward("focus")
         Text(
           text = "COMPLETING YIELDS: +$reward PTS (${stats.difficulty.uppercase()} PACING)",
           color = MaterialTheme.colorScheme.onSurface,
@@ -867,14 +861,11 @@ fun FocusView(
                   .height(IntrinsicSize.Min),
                 verticalAlignment = Alignment.CenterVertically
               ) {
-                val accentColor = when (selectedChapterForFocus?.auraInk) {
-                  "Red" -> AnimeRed
-                  "Teal" -> AnimeTeal
-                  "Purple" -> AnimePurple
-                  "Pink" -> AnimePink
-                  "Black" -> MaterialTheme.colorScheme.onBackground
-                  else -> InkGrayLight
-                }
+                val accentColor = resolveChapterAccentColor(
+                  chapter = selectedChapterForFocus,
+                  bucketColoringEnabled = stats.bucketColoring,
+                  fallbackColor = MaterialTheme.colorScheme.primary
+                )
                 Box(
                   modifier = Modifier
                     .fillMaxHeight()
@@ -932,14 +923,11 @@ fun FocusView(
                 )
               } else {
                 chapters.forEach { chapter ->
-                  val chapterColor = when (chapter.auraInk) {
-                    "Red" -> AnimeRed
-                    "Teal" -> AnimeTeal
-                    "Purple" -> AnimePurple
-                    "Pink" -> AnimePink
-                    "Black" -> MaterialTheme.colorScheme.onBackground
-                    else -> InkGrayLight
-                  }
+                  val chapterColor = resolveChapterAccentColor(
+                    chapter = chapter,
+                    bucketColoringEnabled = stats.bucketColoring,
+                    fallbackColor = MaterialTheme.colorScheme.primary
+                  )
                   DropdownMenuItem(
                     text = {
                       Row(

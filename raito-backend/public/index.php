@@ -8,6 +8,7 @@ use App\Database\Database;
 use App\Services\AdminStatsService;
 use App\Services\AuthService;
 use App\Services\PanelSyncService;
+use App\Services\SyncedBucketService;
 use App\Services\TelegramPairingService;
 use App\Services\TelegramWebhookService;
 use App\Services\UsageEventService;
@@ -91,6 +92,11 @@ if ($method === 'POST' && $path === '/api/telegram/mark-imported') {
 if ($method === 'POST' && $path === '/api/telegram/discard-panels') {
     $user = AuthService::requireUser();
     PanelSyncService::discardPanels($user, Request::jsonBody());
+}
+
+if ($method === 'POST' && $path === '/api/telegram/synced-buckets/snapshot') {
+    $user = AuthService::requireUser();
+    SyncedBucketService::syncSnapshot($user, Request::jsonBody());
 }
 
 if ($method === 'POST' && $path === '/api/events') {

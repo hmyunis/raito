@@ -283,6 +283,7 @@ fun HomeView(
 
               BucketChapterCard(
                 chapter = chapter,
+                useBucketColoring = stats.bucketColoring,
                 completedTasks = completedCount,
                 totalTasks = totalCount,
                 onCardClick = {
@@ -465,6 +466,7 @@ fun HomeView(
 
             BucketChapterCard(
               chapter = chapter,
+              useBucketColoring = stats.bucketColoring,
               completedTasks = completedCount,
               totalTasks = totalCount,
               onCardClick = {
@@ -766,6 +768,7 @@ private fun TaskDetailCapsule(
 @Composable
 fun BucketChapterCard(
   chapter: ChapterEntity,
+  useBucketColoring: Boolean,
   completedTasks: Int,
   totalTasks: Int,
   onCardClick: () -> Unit,
@@ -775,13 +778,9 @@ fun BucketChapterCard(
     CompanionRegistry.getExpressions(chapter.companionId).neutral
   }
 
-  val barColor = when (chapter.auraInk) {
-    "Red" -> AnimeRed
-    "Teal" -> AnimeTeal
-    "Purple" -> AnimePurple
-    "Pink" -> AnimePink
-    "Black" -> MaterialTheme.colorScheme.onBackground
-    else -> AnimeTeal
+  val defaultAccentColor = MaterialTheme.colorScheme.primary
+  val barColor = remember(chapter.auraInk, useBucketColoring, defaultAccentColor) {
+    resolveChapterAccentColor(chapter, useBucketColoring, defaultAccentColor)
   }
 
   val progressPercent = if (totalTasks > 0) completedCountFloat(completedTasks, totalTasks) else 0f
@@ -823,21 +822,39 @@ fun BucketChapterCard(
         ) {
           Column(modifier = Modifier.weight(1f)) {
             // Stage/Status Tag
-            val stageLabel = if (chapter.isCompleted) "INKED" else "LINE ART"
-            val stageBgColor = if (chapter.isCompleted) barColor else MaterialTheme.colorScheme.surfaceVariant
-            Box(
-              modifier = Modifier
-                .background(stageBgColor)
-                .mangaBorder(width = 1.dp)
-                .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-              Text(
-                text = stageLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (chapter.isCompleted) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.Bold,
-                fontSize = 8.sp
-              )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+              val stageLabel = if (chapter.isCompleted) "INKED" else "LINE ART"
+              val stageBgColor = if (chapter.isCompleted) barColor else MaterialTheme.colorScheme.surfaceVariant
+              Box(
+                modifier = Modifier
+                  .background(stageBgColor)
+                  .mangaBorder(width = 1.dp)
+                  .padding(horizontal = 6.dp, vertical = 2.dp)
+              ) {
+                Text(
+                  text = stageLabel,
+                  style = MaterialTheme.typography.labelSmall,
+                  color = if (chapter.isCompleted) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                  fontWeight = FontWeight.Bold,
+                  fontSize = 8.sp
+                )
+              }
+              if (chapter.telegramSyncEnabled) {
+                Box(
+                  modifier = Modifier
+                    .background(AnimeTeal)
+                    .mangaBorder(width = 1.dp)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                  Text(
+                    text = "SYNC",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Black,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 8.sp
+                  )
+                }
+              }
             }
 
             Spacer(modifier = Modifier.height(4.dp))

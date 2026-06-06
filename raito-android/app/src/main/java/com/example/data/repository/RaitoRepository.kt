@@ -28,6 +28,14 @@ class RaitoRepository(
     customAvatarDao.deleteCustomAvatar(avatar)
   }
 
+  suspend fun getChapterById(id: Int): ChapterEntity? = chapterDao.getChapterById(id)
+
+  suspend fun getTaskById(id: Int): TaskEntity? = taskDao.getTaskById(id)
+
+  suspend fun getTasksForChapterSnapshot(chapterId: Int): List<TaskEntity> = taskDao.getTasksForChapterSnapshot(chapterId)
+
+  suspend fun getCurrentStats(): UserStatsEntity = userStatsDao.getUserStats() ?: UserStatsEntity()
+
   fun getTasksForChapter(chapterId: Int): Flow<List<TaskEntity>> = taskDao.getTasksForChapter(chapterId)
 
   suspend fun insertChapter(chapter: ChapterEntity): Long {
@@ -61,7 +69,7 @@ class RaitoRepository(
 
   suspend fun addPoints(amount: Int) {
     val current = userStatsDao.getUserStats() ?: UserStatsEntity()
-    userStatsDao.insertUserStats(current.copy(points = current.points + amount))
+    userStatsDao.insertUserStats(current.copy(points = (current.points + amount).coerceAtLeast(0)))
   }
 
   suspend fun spendPoints(amount: Int): Boolean {
@@ -82,6 +90,13 @@ class RaitoRepository(
   suspend fun decrementClearedTasks() {
     val current = userStatsDao.getUserStats() ?: UserStatsEntity()
     userStatsDao.insertUserStats(current.copy(clearedCount = (current.clearedCount - 1).coerceAtLeast(0)))
+  }
+
+  suspend fun adjustClearedTasks(delta: Int) {
+    when {
+      delta > 0 -> repeat(delta) { incrementClearedTasks() }
+      delta < 0 -> repeat(-delta) { decrementClearedTasks() }
+    }
   }
 
   suspend fun logActivityToday() {

@@ -219,6 +219,7 @@ fun BucketsView(
                   val totCount = subTasks.size
                   ChapterCard(
                     chapter = chapter,
+                    useBucketColoring = stats.bucketColoring,
                     totalTasks = totCount,
                     completedTasks = compCount,
                     isSelected = activeChapter?.id == chapter.id,
@@ -245,6 +246,7 @@ fun BucketsView(
                       val totCount = subTasks.size
                       ChapterCard(
                         chapter = chapter,
+                        useBucketColoring = stats.bucketColoring,
                         totalTasks = totCount,
                         completedTasks = compCount,
                         isSelected = activeChapter?.id == chapter.id,
@@ -366,6 +368,26 @@ fun BucketsView(
                     fontWeight = FontWeight.Bold,
                     color = AnimeRed,
                     fontSize = 8.5.sp
+                  )
+                }
+              }
+
+              Card(
+                shape = RectangleShape,
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .mangaBorder(color = AnimeTeal)
+                  .mangaShadow(offset = 2.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+              ) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                  MangaSettingSwitchRow(
+                    title = "Telegram Bucket Sync",
+                    description = "Expose this bucket and its tasks to your linked Telegram bot.",
+                    checked = activeChapter!!.telegramSyncEnabled,
+                    onCheckedChange = { enabled ->
+                      viewModel.updateChapterTelegramSync(activeChapter!!.id, enabled)
+                    }
                   )
                 }
               }
@@ -702,6 +724,7 @@ fun BucketsView(
                   val totCount = subTasks.size
                   ChapterCard(
                     chapter = chapter,
+                    useBucketColoring = stats.bucketColoring,
                     totalTasks = totCount,
                     completedTasks = compCount,
                     isSelected = activeChapter?.id == chapter.id,
@@ -728,6 +751,7 @@ fun BucketsView(
                       val totCount = subTasks.size
                       ChapterCard(
                         chapter = chapter,
+                        useBucketColoring = stats.bucketColoring,
                         totalTasks = totCount,
                         completedTasks = compCount,
                         isSelected = activeChapter?.id == chapter.id,
@@ -1103,6 +1127,28 @@ fun BucketsView(
                 use24HourTime = use24HourTime
               )
             }
+          }
+        }
+      }
+
+      // Action Reset Chapter Progress Button
+      item {
+        Card(
+          shape = RectangleShape,
+          modifier = Modifier
+            .fillMaxWidth()
+            .mangaBorder(color = AnimeTeal),
+          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+          Column(modifier = Modifier.padding(12.dp)) {
+            MangaSettingSwitchRow(
+              title = "Telegram Bucket Sync",
+              description = "Expose this bucket and its tasks to your linked Telegram bot.",
+              checked = activeChapter!!.telegramSyncEnabled,
+              onCheckedChange = { enabled ->
+                viewModel.updateChapterTelegramSync(activeChapter!!.id, enabled)
+              }
+            )
           }
         }
       }
@@ -1591,8 +1637,8 @@ fun TaskItemRow(
             fontWeight = FontWeight.Bold,
             textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
             color = if (task.isCompleted) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
+            maxLines = if (isExpanded) Int.MAX_VALUE else 2,
+            overflow = if (isExpanded) TextOverflow.Clip else TextOverflow.Ellipsis
           )
           
           if (!isExpanded && (!task.description.isNullOrEmpty() || !task.dueDatetime.isNullOrEmpty())) {
@@ -1837,6 +1883,7 @@ private fun ChibiSpeechBubble(
 @Composable
 fun ChapterCard(
   chapter: ChapterEntity,
+  useBucketColoring: Boolean,
   totalTasks: Int,
   completedTasks: Int,
   isSelected: Boolean, // Note: no longer used for selection styling as we navigate to detail
@@ -1846,30 +1893,8 @@ fun ChapterCard(
 ) {
   val pct = if (totalTasks > 0) (completedTasks * 100 / totalTasks) else 0
   val defaultBadgeColor = MaterialTheme.colorScheme.primary
-  val onBackgroundBadgeColor = MaterialTheme.colorScheme.onBackground
-  val badgeColor = remember(chapter.auraInk, chapter.discipline, defaultBadgeColor, onBackgroundBadgeColor) {
-    if (chapter.auraInk.startsWith("#")) {
-       try {
-         Color(android.graphics.Color.parseColor(chapter.auraInk))
-       } catch (e: Exception) {
-         defaultBadgeColor
-       }
-    } else {
-      when (chapter.discipline.uppercase()) {
-        "STUDY" -> AnimePurple
-        "WORK" -> IndigoAccent
-        "PERSONAL" -> AnimeTeal
-        "FITNESS" -> AnimeGreen
-        "PROJECT" -> AnimeOrange
-        else -> when(chapter.auraInk.uppercase()) {
-          "RED" -> AnimeRed
-          "TEAL" -> AnimeTeal
-          "PURPLE" -> AnimePurple
-          "PINK" -> AnimePink
-          else -> onBackgroundBadgeColor
-        }
-      }
-    }
+  val badgeColor = remember(chapter.auraInk, useBucketColoring, defaultBadgeColor) {
+    resolveChapterAccentColor(chapter, useBucketColoring, defaultBadgeColor)
   }
 
   val compUrl = remember(chapter.companionId) {
@@ -1908,6 +1933,22 @@ fun ChapterCard(
               fontWeight = FontWeight.Black,
               color = MaterialTheme.colorScheme.background
             )
+          }
+
+          if (chapter.telegramSyncEnabled) {
+            Box(
+              modifier = Modifier
+                .background(AnimeTeal)
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+              Text(
+                text = "SYNC",
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Black,
+                color = Color.Black
+              )
+            }
           }
 
           // Overdue / Critical Tag

@@ -53,6 +53,7 @@ fun NewChapterView(
   val selectedCompanionId by viewModel.selectedCompanionId.collectAsState()
   val selectedAuraInk by viewModel.selectedAuraInk.collectAsState()
   val selectedDeadline by viewModel.selectedDeadline.collectAsState()
+  val selectedTelegramSyncEnabled by viewModel.selectedTelegramSyncEnabled.collectAsState()
   val timeFormatMode by viewModel.timeFormatMode.collectAsState()
   val customAuraColor: Color? by viewModel.customAuraColor.collectAsState()
   val use24HourTime = timeFormatMode == "24"
@@ -261,6 +262,13 @@ fun NewChapterView(
               }
             )
           }
+
+          MangaSettingSwitchRow(
+            title = "Sync This Bucket To Telegram",
+            description = "Publish this bucket and its tasks to your linked Telegram bot for browsing in DMs.",
+            checked = selectedTelegramSyncEnabled,
+            onCheckedChange = { viewModel.selectedTelegramSyncEnabled.value = it }
+          )
           
           Spacer(modifier = Modifier.weight(1f))
 
@@ -922,6 +930,13 @@ fun NewChapterView(
               )
             )
           }
+
+        MangaSettingSwitchRow(
+          title = "Sync This Bucket To Telegram",
+          description = "Publish this bucket and its tasks to your linked Telegram bot for browsing in DMs.",
+          checked = selectedTelegramSyncEnabled,
+          onCheckedChange = { viewModel.selectedTelegramSyncEnabled.value = it }
+        )
 
         Spacer(modifier = Modifier.height(10.dp))
 

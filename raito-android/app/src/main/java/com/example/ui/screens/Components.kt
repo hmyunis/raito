@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.database.ChapterEntity
 import com.example.ui.theme.*
 import kotlin.random.Random
 
@@ -184,6 +185,44 @@ fun Modifier.starryTwinkleBackground(): Modifier = this.composed {
       )
     }
   }
+}
+
+fun resolveAuraInkColor(
+  auraInk: String?,
+  fallbackColor: Color
+): Color {
+  if (auraInk.isNullOrBlank()) return fallbackColor
+
+  if (auraInk.startsWith("#")) {
+    return try {
+      Color(android.graphics.Color.parseColor(auraInk))
+    } catch (_: Exception) {
+      fallbackColor
+    }
+  }
+
+  return when (auraInk.uppercase()) {
+    "RED" -> AnimeRed
+    "TEAL" -> AnimeTeal
+    "PURPLE" -> AnimePurple
+    "PINK" -> AnimePink
+    "BLACK" -> fallbackColor
+    "ORANGE" -> AnimeOrange
+    "GREEN" -> AnimeGreen
+    "YELLOW" -> AnimeYellow
+    "INDIGO" -> IndigoAccent
+    "BLUE" -> Color(0xFF2196F3)
+    else -> fallbackColor
+  }
+}
+
+fun resolveChapterAccentColor(
+  chapter: ChapterEntity?,
+  bucketColoringEnabled: Boolean,
+  fallbackColor: Color
+): Color {
+  if (!bucketColoringEnabled || chapter == null) return fallbackColor
+  return resolveAuraInkColor(chapter.auraInk, fallbackColor)
 }
 
 // Segmented Navigation Header tab button

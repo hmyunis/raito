@@ -5,12 +5,14 @@ import android.content.Context
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.example.data.database.*
 import com.example.data.repository.RaitoRepository
 import com.example.data.network.*
 import com.example.ui.screens.NotificationHelper
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import com.example.util.CompanionRegistry
@@ -26,6 +28,7 @@ sealed interface UiEvent {
   data class ShowUndoSnackbar(val message: String, val taskId: Int) : UiEvent
 }
 
+@OptIn(FlowPreview::class)
 class RaitoViewModel(application: Application) : AndroidViewModel(application) {
   private companion object {
     const val KEY_BUCKET_LAYOUT_MODE = "bucket_layout_mode"
@@ -62,6 +65,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
   val selectedCompanionId = MutableStateFlow("Knight") // Knight, Cyber, Scholar
   val selectedAuraInk = MutableStateFlow("Red") // Red, Teal, Purple, Pink, Black
   val selectedDeadline = MutableStateFlow("") // mm/dd/yyyy
+  val selectedTelegramSyncEnabled = MutableStateFlow(false)
   val customAuraColor = MutableStateFlow<Color?>(null)
 
   val chapterSearchQuery = MutableStateFlow("")
@@ -176,6 +180,12 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
   val pairingCodeState: StateFlow<PairingCodeState> = _pairingCodeState.asStateFlow()
 
   private var timerJob: Job? = null
+  private var lastSyncedBucketSnapshotSignature: String? = null
+
+  private data class TelegramBucketSyncConfig(
+    val backendBaseUrl: String,
+    val backendDeviceToken: String
+  )
 
   init {
     viewModelScope.launch {
@@ -252,6 +262,20 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
           }
         }
       }
+    }
+
+    viewModelScope.launch {
+      combine(
+        chapters,
+        tasks,
+        stats.map { TelegramBucketSyncConfig(it.backendBaseUrl, it.backendDeviceToken) }
+      ) { chaptersList, tasksList, config ->
+        Triple(chaptersList, tasksList, config)
+      }
+        .debounce(1500)
+        .collectLatest { (chaptersList, tasksList, config) ->
+          syncTelegramBucketSnapshot(chaptersList, tasksList, config)
+        }
     }
   }
 
@@ -478,6 +502,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
     selectedDiscipline.value = chapter.discipline
     selectedCompanionId.value = chapter.companionId
     selectedDeadline.value = chapter.deadline ?: ""
+    selectedTelegramSyncEnabled.value = chapter.telegramSyncEnabled
     
     // Check if auraInk is a hex color
     if (chapter.auraInk.startsWith("#")) {
@@ -516,7 +541,8 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
               discipline = selectedDiscipline.value,
               companionId = selectedCompanionId.value,
               auraInk = auraInkToSave,
-              deadline = selectedDeadline.value.ifEmpty { null }
+              deadline = selectedDeadline.value.ifEmpty { null },
+              telegramSyncEnabled = selectedTelegramSyncEnabled.value
             )
           )
         }
@@ -527,7 +553,8 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
             discipline = selectedDiscipline.value,
             companionId = selectedCompanionId.value,
             auraInk = auraInkToSave,
-            deadline = selectedDeadline.value.ifEmpty { null }
+            deadline = selectedDeadline.value.ifEmpty { null },
+            telegramSyncEnabled = selectedTelegramSyncEnabled.value
           )
         )
       }
@@ -541,6 +568,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
     editingChapterId.value = null
     chapterNameInput.value = ""
     selectedDeadline.value = ""
+    selectedTelegramSyncEnabled.value = false
     selectedDiscipline.value = "Study"
     selectedCompanionId.value = "Knight"
     selectedAuraInk.value = "Red"
@@ -549,55 +577,63 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
 
   fun toggleTaskCompletion(task: TaskEntity) {
     viewModelScope.launch {
-      val updated = task.copy(isCompleted = !task.isCompleted)
-      repository.updateTask(updated)
-      
-      if (updated.isCompleted) {
-        repository.addPoints(getXpReward("task"))
-        repository.incrementClearedTasks()
-        
-        // Emit undo snackbar event
-        _uiEvents.emit(UiEvent.ShowUndoSnackbar("Completed task: ${task.name}", task.id))
-        
-        // check if this completes the chapter entirely!
-        val chapterId = task.chapterId
-        val chapterTasks = tasks.value.filter { it.chapterId == chapterId }
-        val allOtherDone = chapterTasks.filter { it.id != task.id }.all { it.isCompleted }
-        if (allOtherDone) {
-          // Chapter is newly finalized fully completed!
-          val ch = chapters.value.find { it.id == chapterId }
-          if (ch != null && !ch.isCompleted) {
-            repository.updateChapter(ch.copy(isCompleted = true))
-            repository.addPoints(getXpReward("chapter")) // completion bonus
-            triggerMilestone(ch.companionId) // celebrate milestone!
-          }
-        }
-      } else {
-        // Uncompleted chapter
-        val ch = chapters.value.find { it.id == task.chapterId }
-        if (ch != null && ch.isCompleted) {
-          repository.updateChapter(ch.copy(isCompleted = false))
-        }
+      val completionResult = setTaskCompletionState(task.id, shouldComplete = !task.isCompleted)
+      if (completionResult.completedTaskName != null) {
+        _uiEvents.emit(UiEvent.ShowUndoSnackbar("Completed task: ${completionResult.completedTaskName}", task.id))
       }
+      completionResult.milestoneCompanionId?.let(::triggerMilestone)
     }
   }
 
   fun undoTaskCompletion(taskId: Int) {
     viewModelScope.launch {
-      val task = tasks.value.find { it.id == taskId } ?: return@launch
-      if (task.isCompleted) {
-        val updated = task.copy(isCompleted = false)
-        repository.updateTask(updated)
+      setTaskCompletionState(taskId, shouldComplete = false)
+    }
+  }
+
+  private data class TaskCompletionResult(
+    val completedTaskName: String? = null,
+    val milestoneCompanionId: String? = null
+  )
+
+  private suspend fun setTaskCompletionState(taskId: Int, shouldComplete: Boolean): TaskCompletionResult {
+    var completedTaskName: String? = null
+    var milestoneCompanionId: String? = null
+
+    database.withTransaction {
+      val currentTask = repository.getTaskById(taskId) ?: return@withTransaction
+      if (currentTask.isCompleted == shouldComplete) return@withTransaction
+
+      repository.updateTask(currentTask.copy(isCompleted = shouldComplete))
+      val chapter = repository.getChapterById(currentTask.chapterId)
+
+      if (shouldComplete) {
+        repository.addPoints(getXpReward("task"))
+        repository.incrementClearedTasks()
+        completedTaskName = currentTask.name
+
+        val chapterTasks = repository.getTasksForChapterSnapshot(currentTask.chapterId)
+        val chapterJustCompleted = chapterTasks.isNotEmpty() && chapterTasks.all { it.isCompleted }
+        if (chapter != null && chapterJustCompleted && !chapter.isCompleted) {
+          repository.updateChapter(chapter.copy(isCompleted = true))
+          repository.addPoints(getXpReward("chapter"))
+          milestoneCompanionId = chapter.companionId
+        }
+      } else {
         repository.addPoints(-getXpReward("task"))
         repository.decrementClearedTasks()
-        
-        val ch = chapters.value.find { it.id == task.chapterId }
-        if (ch != null && ch.isCompleted) {
-          repository.updateChapter(ch.copy(isCompleted = false))
+
+        if (chapter != null && chapter.isCompleted) {
+          repository.updateChapter(chapter.copy(isCompleted = false))
           repository.addPoints(-getXpReward("chapter"))
         }
       }
     }
+
+    return TaskCompletionResult(
+      completedTaskName = completedTaskName,
+      milestoneCompanionId = milestoneCompanionId
+    )
   }
 
   fun deleteTask(taskId: Int) {
@@ -616,6 +652,14 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
         clearChapterForm()
       }
       _activeScreen.value = AppScreen.BUCKETS
+    }
+  }
+
+  fun updateChapterTelegramSync(chapterId: Int, enabled: Boolean) {
+    viewModelScope.launch {
+      val chapter = repository.getChapterById(chapterId) ?: return@launch
+      if (chapter.telegramSyncEnabled == enabled) return@launch
+      repository.updateChapter(chapter.copy(telegramSyncEnabled = enabled))
     }
   }
 
@@ -775,16 +819,23 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
   fun confirmResetChapterProgress() {
     val chapterId = chapterIdToReset.value ?: return
     viewModelScope.launch {
-      // Complete Tasks are cleared/returned to uncompleted status
-      val list = tasks.value.filter { it.chapterId == chapterId }
-      list.forEach { task ->
-        repository.updateTask(task.copy(isCompleted = false))
-      }
-      
-      // Bucket completed status cleared
-      val ch = chapters.value.find { it.id == chapterId }
-      ch?.let {
-        repository.updateChapter(it.copy(isCompleted = false))
+      database.withTransaction {
+        val chapterTasks = repository.getTasksForChapterSnapshot(chapterId)
+        val completedTasks = chapterTasks.filter { it.isCompleted }
+        completedTasks.forEach { task ->
+          repository.updateTask(task.copy(isCompleted = false))
+        }
+
+        val chapter = repository.getChapterById(chapterId)
+        if (chapter?.isCompleted == true) {
+          repository.updateChapter(chapter.copy(isCompleted = false))
+          repository.addPoints(-getXpReward("chapter"))
+        }
+
+        if (completedTasks.isNotEmpty()) {
+          repository.addPoints(-(completedTasks.size * getXpReward("task")))
+          repository.adjustClearedTasks(-completedTasks.size)
+        }
       }
 
       showResetProgressDialog.value = false
@@ -836,13 +887,20 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
 
   fun claimWelcomingGift() {
     viewModelScope.launch {
-      val s = stats.value
-      if (!s.isWelcomingGiftClaimed) {
-        val updated = s.copy(
-          points = s.points + 500,
-          isWelcomingGiftClaimed = true
-        )
-        repository.updateStats(updated)
+      var claimed = false
+      database.withTransaction {
+        val currentStats = repository.getCurrentStats()
+        if (!currentStats.isWelcomingGiftClaimed) {
+          repository.updateStats(
+            currentStats.copy(
+              points = currentStats.points + 500,
+              isWelcomingGiftClaimed = true
+            )
+          )
+          claimed = true
+        }
+      }
+      if (claimed) {
         triggerConfetti()
         _uiEvents.emit(UiEvent.ShowUndoSnackbar("Welcoming Gift Claimed! +500 PTS added.", -1))
       }
@@ -891,6 +949,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
         chObj.put("companionId", ch.companionId)
         chObj.put("auraInk", ch.auraInk)
         chObj.put("deadline", ch.deadline ?: org.json.JSONObject.NULL)
+        chObj.put("telegramSyncEnabled", ch.telegramSyncEnabled)
         chObj.put("isCompleted", ch.isCompleted)
         chObj.put("timestamp", ch.timestamp)
         chArray.put(chObj)
@@ -966,6 +1025,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
             companionId = chObj.getString("companionId"),
             auraInk = chObj.getString("auraInk"),
             deadline = if (chObj.isNull("deadline")) null else chObj.getString("deadline"),
+            telegramSyncEnabled = chObj.optBoolean("telegramSyncEnabled", false),
             isCompleted = chObj.optBoolean("isCompleted", false),
             timestamp = chObj.optLong("timestamp", System.currentTimeMillis())
           )
@@ -1229,13 +1289,97 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   fun claimDailyStreakBonus() {
-    if (!canClaimDailyStreakBonus()) return
     viewModelScope.launch {
       val todayStr = DateUtils.formatYyyyMMdd()
       val reward = getXpReward("streak")
-      repository.addPoints(reward)
-      repository.updateStats(stats.value.copy(lastStreakClaimedDate = todayStr, dailyStreak = stats.value.dailyStreak + 1))
-      _uiEvents.emit(UiEvent.ShowUndoSnackbar("Streak check-in bonus! Earned +$reward PTS!", -1))
+      var claimed = false
+      database.withTransaction {
+        val currentStats = repository.getCurrentStats()
+        if (currentStats.lastStreakClaimedDate != todayStr) {
+          repository.updateStats(
+            currentStats.copy(
+              points = currentStats.points + reward,
+              lastStreakClaimedDate = todayStr,
+              dailyStreak = currentStats.dailyStreak + 1
+            )
+          )
+          claimed = true
+        }
+      }
+      if (claimed) {
+        _uiEvents.emit(UiEvent.ShowUndoSnackbar("Streak check-in bonus! Earned +$reward PTS!", -1))
+      }
+    }
+  }
+
+  private suspend fun syncTelegramBucketSnapshot(
+    chaptersList: List<ChapterEntity>,
+    tasksList: List<TaskEntity>,
+    config: TelegramBucketSyncConfig
+  ) {
+    if (config.backendDeviceToken.isBlank()) {
+      lastSyncedBucketSnapshotSignature = null
+      return
+    }
+
+    val syncedBuckets = chaptersList
+      .filter { it.telegramSyncEnabled }
+      .sortedByDescending { it.timestamp }
+      .map { chapter ->
+        SyncedBucketSnapshotDto(
+          chapter_id = chapter.id,
+          name = chapter.name,
+          discipline = chapter.discipline,
+          companion_id = chapter.companionId,
+          aura_ink = chapter.auraInk,
+          deadline = chapter.deadline,
+          is_completed = chapter.isCompleted,
+          timestamp = chapter.timestamp,
+          tasks = tasksList
+            .filter { it.chapterId == chapter.id }
+            .sortedWith(
+              compareByDescending<TaskEntity> { it.isPinned }
+                .thenBy { it.isCompleted }
+                .thenByDescending { it.createdAt ?: 0L }
+            )
+            .map { task ->
+              SyncedBucketTaskSnapshotDto(
+                task_id = task.id,
+                name = task.name,
+                time_remaining = task.timeRemaining,
+                is_completed = task.isCompleted,
+                is_overdue = task.isOverdue,
+                description = task.description,
+                due_datetime = task.dueDatetime,
+                created_at = task.createdAt,
+                is_pinned = task.isPinned
+              )
+            }
+        )
+      }
+
+    val signature = syncedBuckets.toString() + "|" + config.backendBaseUrl + "|" + config.backendDeviceToken
+
+    if (signature == lastSyncedBucketSnapshotSignature) {
+      return
+    }
+
+    try {
+      val request = SyncedBucketsSnapshotRequest(
+        buckets = syncedBuckets,
+        client_sync_id = "bucket-snapshot-${System.currentTimeMillis()}",
+        app_version = "1.0.0"
+      )
+      val api = RaitoApiService.create(config.backendBaseUrl.ifBlank { "https://raito.hamdi.dev.et" })
+      val response = api.syncSyncedBucketsSnapshot(
+        bearerToken = "Bearer ${config.backendDeviceToken}",
+        request = request
+      )
+      if (response.ok) {
+        lastSyncedBucketSnapshotSignature = signature
+      }
+    } catch (_: Exception) {
+      // Best-effort sync only; local data remains authoritative.
     }
   }
 }

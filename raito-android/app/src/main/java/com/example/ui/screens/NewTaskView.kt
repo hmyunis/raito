@@ -31,6 +31,7 @@ fun NewTaskView(
   val taskDueDatetimeInput by viewModel.taskDueDatetimeInput.collectAsState()
   val timeFormatMode by viewModel.timeFormatMode.collectAsState()
   val chapters by viewModel.chapters.collectAsState()
+  val stats by viewModel.stats.collectAsState()
   val canSubmitTask = taskNameInput.trim().isNotEmpty() && taskChapterIdInput != null
   val use24HourTime = timeFormatMode == "24"
 
@@ -370,13 +371,11 @@ fun NewTaskView(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
               ) {
                 // Color aura block
-                val auraBg = when (chapter.auraInk) {
-                  "Red" -> AnimeRed
-                  "Teal" -> AnimeTeal
-                  "Purple" -> AnimePurple
-                  "Pink" -> AnimePink
-                  else -> AnimeTeal
-                }
+                val auraBg = resolveChapterAccentColor(
+                  chapter = chapter,
+                  bucketColoringEnabled = stats.bucketColoring,
+                  fallbackColor = MaterialTheme.colorScheme.primary
+                )
                 Box(
                   modifier = Modifier
                     .size(12.dp)

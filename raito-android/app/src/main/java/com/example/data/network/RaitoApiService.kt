@@ -98,6 +98,43 @@ data class GenericResponse(
   val error: ErrorDto? = null
 )
 
+data class SyncedBucketTaskSnapshotDto(
+  val task_id: Int,
+  val name: String,
+  val time_remaining: String? = null,
+  val is_completed: Boolean,
+  val is_overdue: Boolean,
+  val description: String? = null,
+  val due_datetime: String? = null,
+  val created_at: Long? = null,
+  val is_pinned: Boolean
+)
+
+data class SyncedBucketSnapshotDto(
+  val chapter_id: Int,
+  val name: String,
+  val discipline: String,
+  val companion_id: String,
+  val aura_ink: String,
+  val deadline: String? = null,
+  val is_completed: Boolean,
+  val timestamp: Long,
+  val tasks: List<SyncedBucketTaskSnapshotDto>
+)
+
+data class SyncedBucketsSnapshotRequest(
+  val buckets: List<SyncedBucketSnapshotDto>,
+  val client_sync_id: String,
+  val app_version: String
+)
+
+data class SyncedBucketsSnapshotResponse(
+  val ok: Boolean,
+  val synced_bucket_count: Int,
+  val synced_task_count: Int,
+  val error: ErrorDto? = null
+)
+
 interface RaitoApiService {
   @GET("api/health")
   suspend fun getHealth(): HealthResponse
@@ -128,6 +165,12 @@ interface RaitoApiService {
     @Header("Authorization") bearerToken: String,
     @Body request: DiscardPanelsRequest
   ): GenericResponse
+
+  @POST("api/telegram/synced-buckets/snapshot")
+  suspend fun syncSyncedBucketsSnapshot(
+    @Header("Authorization") bearerToken: String,
+    @Body request: SyncedBucketsSnapshotRequest
+  ): SyncedBucketsSnapshotResponse
 
   companion object {
     fun create(rawBaseUrl: String): RaitoApiService {

@@ -26,8 +26,14 @@ interface ChapterDao {
 
 @Dao
 interface TaskDao {
+  @Query("SELECT * FROM tasks WHERE id = :id")
+  suspend fun getTaskById(id: Int): TaskEntity?
+
   @Query("SELECT * FROM tasks WHERE chapterId = :chapterId ORDER BY createdAt DESC")
   fun getTasksForChapter(chapterId: Int): Flow<List<TaskEntity>>
+
+  @Query("SELECT * FROM tasks WHERE chapterId = :chapterId")
+  suspend fun getTasksForChapterSnapshot(chapterId: Int): List<TaskEntity>
 
   @Query("SELECT * FROM tasks ORDER BY createdAt DESC")
   fun getAllTasks(): Flow<List<TaskEntity>>

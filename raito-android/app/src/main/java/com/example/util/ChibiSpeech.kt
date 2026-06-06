@@ -13,6 +13,8 @@ enum class ChibiMood {
 }
 
 object ChibiSpeechBank {
+  private val lastLineIndexByContext = mutableMapOf<String, Int>()
+
   fun moodFor(chapter: ChapterEntity, tasks: List<TaskEntity>): ChibiMood {
     if (chapter.isCompleted) return ChibiMood.Completed
     if (tasks.any { it.isOverdue && !it.isCompleted }) return ChibiMood.Sad
@@ -41,7 +43,16 @@ object ChibiSpeechBank {
     val lines = linesFor(companionId, mood)
     val completed = tasks.count { it.isCompleted }
     val seed = "${chapter.id}-${chapter.name}-${mood.name}-${tasks.size}-$completed-${tasks.count { it.isOverdue }}-$variation".hashCode()
-    val template = lines[abs(seed).mod(lines.size)]
+    val contextKey = "$companionId-${chapter.id}-${mood.name}"
+    val candidateIndex = abs(seed).mod(lines.size)
+    val previousIndex = lastLineIndexByContext[contextKey]
+    val templateIndex = when {
+      lines.size <= 1 -> 0
+      previousIndex == null || previousIndex != candidateIndex -> candidateIndex
+      else -> (candidateIndex + 1 + abs(seed / lines.size.coerceAtLeast(1)).mod(lines.size - 1)) % lines.size
+    }
+    lastLineIndexByContext[contextKey] = templateIndex
+    val template = lines[templateIndex]
     return template
       .replace("{bucket}", chapter.name)
       .replace("{left}", (tasks.size - completed).coerceAtLeast(0).toString())

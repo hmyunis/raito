@@ -11,6 +11,7 @@ data class ChapterEntity(
   val companionId: String, // Knight, Cyber, Scholar
   val auraInk: String, // Red, Teal, Purple, Pink, Black
   val deadline: String? = null,
+  val telegramSyncEnabled: Boolean = false,
   val isCompleted: Boolean = false,
   val timestamp: Long = System.currentTimeMillis()
 )
