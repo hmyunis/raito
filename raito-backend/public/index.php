@@ -6,9 +6,11 @@ require __DIR__ . '/../app/bootstrap.php';
 
 use App\Database\Database;
 use App\Services\AdminStatsService;
+use App\Services\AppUpdateService;
 use App\Services\AuthService;
 use App\Services\PanelSyncService;
 use App\Services\SyncedBucketService;
+use App\Services\TelegramTaskOperationService;
 use App\Services\TelegramPairingService;
 use App\Services\TelegramWebhookService;
 use App\Services\UsageEventService;
@@ -33,6 +35,10 @@ if ($method === 'GET' && $path === '/api/health') {
         'environment' => Env::get('APP_ENV', 'local'),
         'time_utc' => gmdate('c'),
     ]);
+}
+
+if ($method === 'GET' && $path === '/api/app-update/android') {
+    AppUpdateService::android();
 }
 
 if ($method === 'GET' && $path === '/api/db-check') {
@@ -92,6 +98,16 @@ if ($method === 'POST' && $path === '/api/telegram/mark-imported') {
 if ($method === 'POST' && $path === '/api/telegram/discard-panels') {
     $user = AuthService::requireUser();
     PanelSyncService::discardPanels($user, Request::jsonBody());
+}
+
+if ($method === 'GET' && $path === '/api/telegram/task-operations/pending') {
+    $user = AuthService::requireUser();
+    TelegramTaskOperationService::listPending($user);
+}
+
+if ($method === 'POST' && $path === '/api/telegram/task-operations/acknowledge') {
+    $user = AuthService::requireUser();
+    TelegramTaskOperationService::acknowledge($user, Request::jsonBody());
 }
 
 if ($method === 'POST' && $path === '/api/telegram/synced-buckets/snapshot') {

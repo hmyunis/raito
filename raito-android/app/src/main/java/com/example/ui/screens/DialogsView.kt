@@ -8,6 +8,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +39,7 @@ import com.example.ui.viewmodel.RaitoViewModel
 import com.example.data.database.CustomAvatarEntity
 import com.example.ui.theme.*
 import com.example.util.CompanionRegistry
+import java.text.DecimalFormat
 
 private data class AvatarExpressionPreview(
   val title: String,
@@ -149,10 +152,344 @@ fun ResetProgressDialog(
 }
 
 @Composable
+fun AppUpdateDialog(
+  state: RaitoViewModel.AppUpdateUiState,
+  onDownloadClick: () -> Unit,
+  onDismiss: () -> Unit,
+  onInstallClick: () -> Unit,
+  onOpenInstallSettings: () -> Unit,
+  onOpenInBrowser: () -> Unit
+) {
+  val info = state.info ?: return
+
+  Dialog(
+    onDismissRequest = {
+      if (!state.isMandatory) {
+        onDismiss()
+      }
+    },
+    properties = DialogProperties(
+      usePlatformDefaultWidth = false,
+      dismissOnBackPress = !state.isMandatory,
+      dismissOnClickOutside = !state.isMandatory
+    )
+  ) {
+    Box(
+      modifier = Modifier
+        .fillMaxSize()
+        .background(Color.Black.copy(0.5f))
+        .padding(16.dp),
+      contentAlignment = Alignment.Center
+    ) {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth(0.94f)
+          .mangaShadow(offset = 6.dp)
+          .background(BgPaperLight)
+          .mangaBorder(width = 3.dp)
+          .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+      ) {
+        Row(
+          horizontalArrangement = Arrangement.spacedBy(10.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Icon(
+            imageVector = Icons.Default.SystemUpdate,
+            contentDescription = "App update",
+            tint = AnimePurple,
+            modifier = Modifier.size(24.dp)
+          )
+          Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+              text = if (state.isMandatory) "UPDATE REQUIRED" else "UPDATE AVAILABLE",
+              style = MaterialTheme.typography.displayMedium,
+              fontWeight = FontWeight.ExtraBold,
+              color = InkBlack
+            )
+            Text(
+              text = info.title.uppercase(),
+              style = MaterialTheme.typography.bodySmall,
+              fontWeight = FontWeight.Bold,
+              color = InkGrayDark
+            )
+          }
+        }
+
+        Box(
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(InkBlack)
+        )
+
+        Text(
+          text = buildString {
+            append("Version ${info.latestVersion} is ready to install.")
+            if (state.isMandatory) {
+              append(" This release is required before you can continue using the app.")
+            } else {
+              append(" You can update now or continue and be reminded next launch.")
+            }
+          },
+          style = MaterialTheme.typography.bodyLarge,
+          fontWeight = FontWeight.Bold,
+          color = InkGrayDark,
+          lineHeight = 18.sp
+        )
+
+        if (info.releaseNotes.isNotEmpty()) {
+          Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+              text = "WHAT'S NEW",
+              style = MaterialTheme.typography.bodyMedium,
+              fontWeight = FontWeight.ExtraBold,
+              color = InkBlack
+            )
+            info.releaseNotes.take(5).forEach { note ->
+              Text(
+                text = "• $note",
+                style = MaterialTheme.typography.bodySmall,
+                color = InkGrayDark,
+                lineHeight = 18.sp
+              )
+            }
+          }
+        }
+
+        when (val downloadState = state.downloadState) {
+          RaitoViewModel.AppUpdateDownloadState.Idle -> Unit
+          RaitoViewModel.AppUpdateDownloadState.Preparing -> {
+            DownloadProgressPanel(progress = null, status = "Preparing secure download…")
+          }
+          RaitoViewModel.AppUpdateDownloadState.Queued -> {
+            DownloadProgressPanel(progress = 0, status = "Queued for download…")
+          }
+          is RaitoViewModel.AppUpdateDownloadState.InProgress -> {
+            val progressLabel = downloadState.percent?.let { "$it%" } ?: "Starting"
+            val sizeLabel = formatByteProgress(downloadState.downloadedBytes, downloadState.totalBytes)
+            DownloadProgressPanel(
+              progress = downloadState.percent,
+              status = "Downloading update $progressLabel",
+              detail = sizeLabel
+            )
+          }
+          RaitoViewModel.AppUpdateDownloadState.ReadyToInstall -> {
+            DownloadProgressPanel(progress = 100, status = "Update package downloaded. Ready to install.")
+          }
+          RaitoViewModel.AppUpdateDownloadState.Installing -> {
+            DownloadProgressPanel(progress = 100, status = "Opening installer…")
+          }
+          RaitoViewModel.AppUpdateDownloadState.InstallPermissionRequired -> {
+            DownloadProgressPanel(
+              progress = 100,
+              status = "Allow app installs for Raito to finish the update."
+            )
+          }
+          is RaitoViewModel.AppUpdateDownloadState.Failed -> {
+            Box(
+              modifier = Modifier
+                .fillMaxWidth()
+                .background(AnimeRed.copy(alpha = 0.12f))
+                .mangaBorder(color = AnimeRed)
+                .padding(12.dp)
+            ) {
+              Text(
+                text = downloadState.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = InkBlack,
+                fontWeight = FontWeight.Bold
+              )
+            }
+          }
+        }
+
+        Column(
+          modifier = Modifier.fillMaxWidth(),
+          verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+          when (state.downloadState) {
+            RaitoViewModel.AppUpdateDownloadState.InstallPermissionRequired -> {
+              Button(
+                onClick = onOpenInstallSettings,
+                shape = RectangleShape,
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .height(48.dp)
+                  .mangaShadow(offset = 2.dp)
+                  .mangaBorder(),
+                colors = ButtonDefaults.buttonColors(containerColor = AnimePurple)
+              ) {
+                Text("ALLOW INSTALLS", color = Color.White, fontWeight = FontWeight.Bold)
+              }
+              Button(
+                onClick = onInstallClick,
+                shape = RectangleShape,
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .height(48.dp)
+                  .mangaBorder(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = InkBlack)
+              ) {
+                Text("TRY INSTALL AGAIN", fontWeight = FontWeight.Bold)
+              }
+            }
+            RaitoViewModel.AppUpdateDownloadState.ReadyToInstall -> {
+              Button(
+                onClick = onInstallClick,
+                shape = RectangleShape,
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .height(48.dp)
+                  .mangaShadow(offset = 2.dp)
+                  .mangaBorder(),
+                colors = ButtonDefaults.buttonColors(containerColor = AnimePurple)
+              ) {
+                Text("INSTALL UPDATE", color = Color.White, fontWeight = FontWeight.Bold)
+              }
+            }
+            is RaitoViewModel.AppUpdateDownloadState.InProgress,
+            RaitoViewModel.AppUpdateDownloadState.Preparing,
+            RaitoViewModel.AppUpdateDownloadState.Queued,
+            RaitoViewModel.AppUpdateDownloadState.Installing -> Unit
+            else -> {
+              Button(
+                onClick = onDownloadClick,
+                shape = RectangleShape,
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .height(48.dp)
+                  .mangaShadow(offset = 2.dp)
+                  .mangaBorder(),
+                colors = ButtonDefaults.buttonColors(containerColor = AnimePurple)
+              ) {
+                Row(
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                  verticalAlignment = Alignment.CenterVertically
+                ) {
+                  Icon(Icons.Default.Download, contentDescription = null, tint = Color.White)
+                  Text(
+                    text = if (state.downloadState is RaitoViewModel.AppUpdateDownloadState.Failed) {
+                      "RETRY DOWNLOAD"
+                    } else {
+                      "DOWNLOAD UPDATE"
+                    },
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                  )
+                }
+              }
+            }
+          }
+
+          Button(
+            onClick = onOpenInBrowser,
+            shape = RectangleShape,
+            modifier = Modifier
+              .fillMaxWidth()
+              .height(48.dp)
+              .mangaBorder(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = InkBlack)
+          ) {
+            Text("OPEN DOWNLOAD IN BROWSER", fontWeight = FontWeight.Bold)
+          }
+
+          if (!state.isMandatory) {
+            Button(
+              onClick = onDismiss,
+              shape = RectangleShape,
+              modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .mangaBorder(),
+              colors = ButtonDefaults.buttonColors(containerColor = BgPaperLight, contentColor = InkBlack)
+            ) {
+              Text("LATER", fontWeight = FontWeight.Bold)
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun DownloadProgressPanel(
+  progress: Int?,
+  status: String,
+  detail: String? = null
+) {
+  Column(
+    modifier = Modifier
+      .fillMaxWidth()
+      .background(Color.White)
+      .mangaBorder()
+      .padding(12.dp),
+    verticalArrangement = Arrangement.spacedBy(10.dp)
+  ) {
+    Text(
+      text = status,
+      style = MaterialTheme.typography.bodyMedium,
+      fontWeight = FontWeight.ExtraBold,
+      color = InkBlack
+    )
+
+    if (progress != null) {
+      LinearProgressIndicator(
+        progress = { progress / 100f },
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(10.dp),
+        color = AnimePurple,
+        trackColor = InkGrayLight
+      )
+      Text(
+        text = "$progress%",
+        style = MaterialTheme.typography.bodySmall,
+        color = InkGrayDark,
+        fontWeight = FontWeight.Bold
+      )
+    } else {
+      LinearProgressIndicator(
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(10.dp),
+        color = AnimePurple,
+        trackColor = InkGrayLight
+      )
+    }
+
+    if (!detail.isNullOrBlank()) {
+      Text(
+        text = detail,
+        style = MaterialTheme.typography.bodySmall,
+        color = InkGrayDark
+      )
+    }
+  }
+}
+
+private fun formatByteProgress(downloadedBytes: Long, totalBytes: Long?): String {
+  val formatter = DecimalFormat("0.0")
+  val downloadedMb = downloadedBytes / (1024f * 1024f)
+  return if (totalBytes != null && totalBytes > 0) {
+    val totalMb = totalBytes / (1024f * 1024f)
+    "${formatter.format(downloadedMb)} MB / ${formatter.format(totalMb)} MB"
+  } else {
+    "${formatter.format(downloadedMb)} MB downloaded"
+  }
+}
+
+@Composable
 private fun AvatarExpressionsPreviewDialog(
   preview: AvatarExpressionPreview,
   onDismiss: () -> Unit
 ) {
+  val dialogSurface = MaterialTheme.colorScheme.surface
+  val dialogCard = MaterialTheme.colorScheme.surfaceVariant
+  val dialogText = MaterialTheme.colorScheme.onSurface
+  val dialogSubtle = MaterialTheme.colorScheme.onSurfaceVariant
+
   Dialog(
     onDismissRequest = onDismiss,
     properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -169,7 +506,7 @@ private fun AvatarExpressionsPreviewDialog(
         modifier = Modifier
           .fillMaxWidth()
           .mangaShadow(offset = 6.dp)
-          .background(BgPaperLight)
+          .background(dialogSurface)
           .mangaBorder()
           .clickable(enabled = false, onClick = {})
           .padding(16.dp),
@@ -179,7 +516,7 @@ private fun AvatarExpressionsPreviewDialog(
           text = "${preview.title.uppercase()} PREVIEWS",
           style = MaterialTheme.typography.titleMedium,
           fontWeight = FontWeight.ExtraBold,
-          color = InkBlack
+          color = dialogText
         )
 
         LazyVerticalGrid(
@@ -196,7 +533,7 @@ private fun AvatarExpressionsPreviewDialog(
               verticalArrangement = Arrangement.spacedBy(8.dp),
               modifier = Modifier
                 .mangaBorder()
-                .background(Color.White)
+                .background(dialogCard)
                 .padding(10.dp)
             ) {
               Box(
@@ -204,7 +541,7 @@ private fun AvatarExpressionsPreviewDialog(
                   .fillMaxWidth()
                   .aspectRatio(1f)
                   .mangaBorder(1.dp)
-                  .background(BgPaperLight),
+                  .background(dialogSurface),
                 contentAlignment = Alignment.Center
               ) {
                 if (uri != null) {
@@ -217,7 +554,7 @@ private fun AvatarExpressionsPreviewDialog(
                   Icon(
                     imageVector = Icons.Default.Face,
                     contentDescription = label,
-                    tint = InkGrayDark,
+                    tint = dialogSubtle,
                     modifier = Modifier.size(34.dp)
                   )
                 }
@@ -226,7 +563,7 @@ private fun AvatarExpressionsPreviewDialog(
                 text = label,
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Bold,
-                color = InkBlack,
+                color = dialogText,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
               )
             }
@@ -362,6 +699,10 @@ fun SwitchAvatarDialog(
   val craftCost = (1000 * viewModel.getShopPriceMultiplier()).toInt()
   val canAfford = stats.points >= craftCost
   val customAvatars by viewModel.customAvatars.collectAsState()
+  val dialogSurface = MaterialTheme.colorScheme.surface
+  val dialogCard = MaterialTheme.colorScheme.surfaceVariant
+  val dialogText = MaterialTheme.colorScheme.onSurface
+  val dialogSubtle = MaterialTheme.colorScheme.onSurfaceVariant
 
   var showCreateForm by remember { mutableStateOf(false) }
   var avatarToDelete by remember { mutableStateOf<CustomAvatarEntity?>(null) }
@@ -419,7 +760,7 @@ fun SwitchAvatarDialog(
           .fillMaxWidth(0.95f)
           .fillMaxHeight(0.85f)
           .mangaShadow(offset = 6.dp)
-          .background(BgPaperLight)
+          .background(dialogSurface)
           .mangaBorder(width = 3.dp)
           .padding(16.dp)
       ) {
@@ -442,7 +783,7 @@ fun SwitchAvatarDialog(
             Text(
               text = if (showCreateForm) "CREATE CHIBI" else "SWITCH AVATAR",
               style = MaterialTheme.typography.displayMedium,
-              color = InkBlack,
+              color = dialogText,
               fontWeight = FontWeight.ExtraBold,
               fontSize = 20.sp
             )
@@ -452,7 +793,7 @@ fun SwitchAvatarDialog(
             Icon(
               imageVector = Icons.Default.Close,
               contentDescription = "Dismiss",
-              tint = InkBlack
+              tint = dialogText
             )
           }
         }
@@ -462,7 +803,7 @@ fun SwitchAvatarDialog(
             .fillMaxWidth()
             .padding(vertical = 8.dp)
             .height(3.dp)
-            .background(InkBlack)
+            .background(dialogText)
         )
 
         // Switchable Content Body
@@ -478,7 +819,7 @@ fun SwitchAvatarDialog(
             Box(
               modifier = Modifier
                 .align(Alignment.End)
-                .background(Color.White)
+                .background(dialogCard)
                 .mangaBorder()
                 .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
@@ -486,7 +827,7 @@ fun SwitchAvatarDialog(
                 text = "${stats.points} PTS",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Black,
-                color = InkBlack
+                color = dialogText
               )
             }
 
@@ -495,7 +836,7 @@ fun SwitchAvatarDialog(
               text = "PRESET COMPANIONS",
               style = MaterialTheme.typography.titleMedium,
               fontWeight = FontWeight.ExtraBold,
-              color = InkBlack
+              color = dialogText
             )
 
             val presets = listOf(
@@ -522,7 +863,7 @@ fun SwitchAvatarDialog(
                 modifier = Modifier
                   .fillMaxWidth()
                   .mangaBorder()
-                  .background(if (isEquipped) AnimeYellow.copy(0.2f) else Color.White)
+                  .background(if (isEquipped) AnimeYellow.copy(alpha = 0.18f) else dialogCard)
                   .clickable {
                     if (isUnlocked) {
                       viewModel.equipCompanion(id)
@@ -539,7 +880,7 @@ fun SwitchAvatarDialog(
                   modifier = Modifier
                     .size(50.dp)
                     .mangaBorder(width = 1.dp)
-                    .background(BgPaperLight)
+                    .background(dialogSurface)
                     .clickable {
                       expressionPreview = AvatarExpressionPreview(
                         title = name,
@@ -566,7 +907,7 @@ fun SwitchAvatarDialog(
                     text = name.uppercase(),
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.ExtraBold,
-                    color = InkBlack
+                    color = dialogText
                   )
                   Text(
                     text = if (isUnlocked) "UNLOCKED" else "LOCKED ($calculatedPrice PTS) - GO TO SHOP",
@@ -587,7 +928,7 @@ fun SwitchAvatarDialog(
                   Icon(
                     imageVector = Icons.Default.Warning,
                     contentDescription = "Locked",
-                    tint = InkGrayDark
+                    tint = dialogSubtle
                   )
                 }
               }
@@ -605,14 +946,14 @@ fun SwitchAvatarDialog(
                 text = "YOUR CUSTOM AVATARS",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.ExtraBold,
-                color = InkBlack
+                color = dialogText
               )
 
               Text(
                 text = "(${customAvatars.size})",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
-                color = InkGrayDark
+                color = dialogSubtle
               )
             }
 
@@ -629,7 +970,7 @@ fun SwitchAvatarDialog(
                   modifier = Modifier
                     .fillMaxWidth()
                     .mangaBorder()
-                    .background(if (isEquipped) AnimeYellow.copy(0.2f) else Color.White)
+                    .background(if (isEquipped) AnimeYellow.copy(alpha = 0.18f) else dialogCard)
                     .clickable { viewModel.equipCompanion("custom_${avatar.id}") }
                     .padding(12.dp),
                   verticalAlignment = Alignment.CenterVertically,
@@ -639,7 +980,7 @@ fun SwitchAvatarDialog(
                     modifier = Modifier
                       .size(50.dp)
                       .mangaBorder(width = 1.dp)
-                      .background(BgPaperLight)
+                      .background(dialogSurface)
                       .clickable {
                         expressionPreview = AvatarExpressionPreview(
                           title = avatar.name.removePrefix("[Chibi] "),
@@ -666,7 +1007,7 @@ fun SwitchAvatarDialog(
                       text = avatar.name.uppercase(),
                       style = MaterialTheme.typography.bodyLarge,
                       fontWeight = FontWeight.ExtraBold,
-                      color = InkBlack,
+                      color = dialogText,
                       maxLines = 1,
                       overflow = TextOverflow.Ellipsis
                     )

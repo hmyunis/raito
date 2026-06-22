@@ -8,6 +8,9 @@ interface ChapterDao {
   @Query("SELECT * FROM chapters ORDER BY timestamp DESC")
   fun getAllChapters(): Flow<List<ChapterEntity>>
 
+  @Query("SELECT * FROM chapters ORDER BY timestamp DESC")
+  suspend fun getAllChaptersSnapshot(): List<ChapterEntity>
+
   @Query("SELECT * FROM chapters WHERE id = :id")
   suspend fun getChapterById(id: Int): ChapterEntity?
 
@@ -37,6 +40,13 @@ interface TaskDao {
 
   @Query("SELECT * FROM tasks ORDER BY createdAt DESC")
   fun getAllTasks(): Flow<List<TaskEntity>>
+
+  @Query("""
+    SELECT * FROM tasks
+    WHERE chapterId = :chapterId
+    ORDER BY isPinned DESC, isCompleted ASC, createdAt DESC, id DESC
+  """)
+  suspend fun getTasksForChapterWidget(chapterId: Int): List<TaskEntity>
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertTask(task: TaskEntity): Long
@@ -77,6 +87,9 @@ interface ActivityDayDao {
   @Query("SELECT * FROM activity_days")
   fun getAllDays(): Flow<List<ActivityDayEntity>>
 
+  @Query("SELECT * FROM activity_days WHERE date = :date LIMIT 1")
+  suspend fun getDayByDate(date: String): ActivityDayEntity?
+
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertDay(day: ActivityDayEntity)
 
@@ -99,5 +112,17 @@ interface CustomAvatarDao {
   suspend fun deleteCustomAvatar(avatar: CustomAvatarEntity)
 
   @Query("DELETE FROM custom_avatars")
+  suspend fun clearAll()
+}
+
+@Dao
+interface AppliedTelegramOperationDao {
+  @Query("SELECT EXISTS(SELECT 1 FROM applied_telegram_operations WHERE operationId = :operationId)")
+  suspend fun hasOperation(operationId: String): Boolean
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun insertOperation(operation: AppliedTelegramOperationEntity)
+
+  @Query("DELETE FROM applied_telegram_operations")
   suspend fun clearAll()
 }

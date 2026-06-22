@@ -345,6 +345,11 @@ fun CustomAvatarForm(
   saveButtonText: String = "SAVE & EQUIP",
   saveEnabledOverride: Boolean = true
 ) {
+  val formSurface = MaterialTheme.colorScheme.surface
+  val formCard = MaterialTheme.colorScheme.surfaceVariant
+  val formText = MaterialTheme.colorScheme.onSurface
+  val formSubtle = MaterialTheme.colorScheme.onSurfaceVariant
+
   Column(
     modifier = Modifier
       .fillMaxWidth()
@@ -355,7 +360,7 @@ fun CustomAvatarForm(
       text = "CHIBI IDENTITY DETAILS",
       style = MaterialTheme.typography.titleMedium,
       fontWeight = FontWeight.ExtraBold,
-      color = InkBlack
+      color = formText
     )
 
     OutlinedTextField(
@@ -365,10 +370,15 @@ fun CustomAvatarForm(
       singleLine = true,
       shape = RectangleShape,
       colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-        focusedBorderColor = InkBlack,
-        unfocusedBorderColor = InkBlack,
-        focusedLabelColor = InkBlack,
-        unfocusedLabelColor = InkBlack
+        focusedBorderColor = MaterialTheme.colorScheme.outline,
+        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+        focusedLabelColor = formSubtle,
+        unfocusedLabelColor = formSubtle,
+        focusedTextColor = formText,
+        unfocusedTextColor = formText,
+        cursorColor = MaterialTheme.colorScheme.primary,
+        focusedContainerColor = formSurface,
+        unfocusedContainerColor = formSurface
       ),
       modifier = Modifier
         .fillMaxWidth()
@@ -379,7 +389,7 @@ fun CustomAvatarForm(
       text = "UPLOAD 5 EXPRESSIONS (IMAGES OR GIFS)",
       style = MaterialTheme.typography.titleMedium,
       fontWeight = FontWeight.ExtraBold,
-      color = InkBlack
+      color = formText
     )
 
     val expressions = listOf(
@@ -395,7 +405,7 @@ fun CustomAvatarForm(
         modifier = Modifier
           .fillMaxWidth()
           .mangaBorder()
-          .background(Color.White)
+          .background(formCard)
           .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -404,7 +414,7 @@ fun CustomAvatarForm(
           modifier = Modifier
             .size(54.dp)
             .mangaBorder(width = 1.dp)
-            .background(BgPaperLight),
+            .background(formSurface),
           contentAlignment = Alignment.Center
         ) {
           if (uri != null) {
@@ -417,7 +427,7 @@ fun CustomAvatarForm(
             Icon(
               imageVector = Icons.Default.Face,
               contentDescription = null,
-              tint = InkGrayDark.copy(0.6f),
+              tint = formSubtle.copy(alpha = 0.7f),
               modifier = Modifier.size(32.dp)
             )
           }
@@ -428,13 +438,13 @@ fun CustomAvatarForm(
             text = title.uppercase(),
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.ExtraBold,
-            color = InkBlack
+            color = formText
           )
           Text(
             text = if (uri != null) "FILE LOADED" else "TAP SELECT TO ADD ONE",
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Bold,
-            color = if (uri != null) AnimeGreen else InkGrayDark
+            color = if (uri != null) AnimeGreen else formSubtle
           )
         }
 
@@ -461,7 +471,7 @@ fun CustomAvatarForm(
     Text(
       text = "* Base neutral expression is required as fallback representation.",
       style = MaterialTheme.typography.bodySmall,
-      color = InkGrayDark,
+      color = formSubtle,
       fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
     )
 
@@ -474,7 +484,10 @@ fun CustomAvatarForm(
       Button(
         onClick = onDiscard,
         shape = RectangleShape,
-        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = InkBlack),
+        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+          containerColor = formCard,
+          contentColor = formText
+        ),
         modifier = Modifier
           .weight(1f)
           .height(48.dp)

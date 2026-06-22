@@ -64,6 +64,14 @@ final class TelegramClient
         return $this->api('answerCallbackQuery', $payload);
     }
 
+    public function sendChatAction(int|string $chatId, string $action): array
+    {
+        return $this->api('sendChatAction', [
+            'chat_id' => $chatId,
+            'action' => $action,
+        ]);
+    }
+
     public function setWebhook(string $url, string $secretToken): array
     {
         return $this->api('setWebhook', [

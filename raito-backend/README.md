@@ -91,9 +91,34 @@ ADMIN_TOKEN=local_admin_token_change_this
 MAX_EVENT_PAYLOAD_BYTES=12000
 MAX_BATCH_EVENTS=50
 MAX_SYNC_PANEL_IDS=100
+ANDROID_UPDATE_PROMPT_ENABLED=false
+ANDROID_UPDATE_LATEST_VERSION=
+ANDROID_UPDATE_MIN_SUPPORTED_VERSION=
+ANDROID_UPDATE_DOWNLOAD_URL=
+ANDROID_UPDATE_RELEASE_TITLE=
+ANDROID_UPDATE_RELEASE_NOTES=
+ANDROID_UPDATE_PUBLISHED_AT=
 ```
 
 Keep `TELEGRAM_BOT_TOKEN` empty until you create a Telegram bot.
+
+## Android Update Prompt Configuration
+
+The Android app now checks `GET /api/app-update/android` on launch. Configure release prompts in `.env`:
+
+- `ANDROID_UPDATE_PROMPT_ENABLED=true` to show the prompt for backward-compatible releases.
+- `ANDROID_UPDATE_LATEST_VERSION=1.1.0` for the newest APK version.
+- `ANDROID_UPDATE_DOWNLOAD_URL=https://yourdomain.example/raito-1.1.0.apk` for the install package.
+- `ANDROID_UPDATE_MIN_SUPPORTED_VERSION=1.0.0` to force-update versions below that floor.
+- `ANDROID_UPDATE_RELEASE_TITLE=Raito 1.1.0`
+- `ANDROID_UPDATE_RELEASE_NOTES=Improved sync stability\nAdded in-app updater`
+- `ANDROID_UPDATE_PUBLISHED_AT=2026-06-12T12:00:00Z`
+
+Behavior:
+
+- If `ANDROID_UPDATE_PROMPT_ENABLED=true` and `ANDROID_UPDATE_LATEST_VERSION` is newer than the installed app, users are prompted every launch until they update.
+- If `ANDROID_UPDATE_MIN_SUPPORTED_VERSION` is higher than the installed version, the prompt becomes mandatory and blocks normal app use until the user updates.
+- Clearing `ANDROID_UPDATE_LATEST_VERSION` or `ANDROID_UPDATE_DOWNLOAD_URL` disables the prompt endpoint.
 
 ## 2. Start Docker
 
@@ -192,6 +217,19 @@ Expected:
 ok       : True
 database : raito_dev
 ```
+
+## Telegram Bot Task Controls
+
+After linking a Telegram account to Raito:
+
+- Any plain text message sent to the bot lands in a Telegram inbox queue.
+- `/inbox` lets the user pick an inbox item and route it into any currently synced bucket with inline buttons.
+- `/buckets` or `/tasks` lets the user browse synced buckets and mark tasks done or undone from Telegram.
+- The Android app pulls those queued task operations from:
+  - `GET /api/telegram/task-operations/pending`
+  - `POST /api/telegram/task-operations/acknowledge`
+
+This keeps Android local-first while still allowing Telegram to act like a remote control surface.
 
 ## 5. Create A Local Test User
 

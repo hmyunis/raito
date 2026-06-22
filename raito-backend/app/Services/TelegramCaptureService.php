@@ -24,7 +24,7 @@ final class TelegramCaptureService
         $chatType = (string) ($chat['type'] ?? '');
 
         if ($chatId === 0 || $telegramUserId === 0 || $messageId === 0) {
-            return ['ok' => false, 'reply' => 'I could not read this message correctly.', 'status' => 'ignored'];
+            return ['ok' => false, 'reply' => 'I could not read that message correctly. Please try again with plain text.', 'status' => 'ignored'];
         }
 
         if ($chatType !== 'private') {
@@ -37,7 +37,7 @@ final class TelegramCaptureService
         }
 
         if ($text === '') {
-            return ['ok' => false, 'reply' => 'Text messages only for now. Send a text panel, not media.', 'status' => 'ignored'];
+            return ['ok' => false, 'reply' => 'Text messages only for now. Send a text note instead of media, and I will place it in your inbox.', 'status' => 'ignored'];
         }
 
         $pdo = Database::pdo();
@@ -58,7 +58,7 @@ final class TelegramCaptureService
         $account = $accountStatement->fetch(PDO::FETCH_ASSOC);
 
         if ($account === false) {
-            return ['ok' => false, 'reply' => "Raito is not linked yet.\n\nOpen Raito → Settings → Telegram Capture → Generate Code, then send:\n/link YOUR-CODE", 'status' => 'ignored'];
+            return ['ok' => false, 'reply' => "🔒 Raito is not linked yet.\n\nOpen Raito → Settings → Telegram Capture → Generate Code, then send:\n/link YOUR-CODE", 'status' => 'ignored'];
         }
 
         $maxChars = max(1, Env::int('REMOTE_PANEL_MAX_CHARS', 4000));
@@ -113,6 +113,6 @@ final class TelegramCaptureService
             throw $exception;
         }
 
-        return ['ok' => true, 'reply' => 'Captured. It will remain pending until you sync in the app.', 'status' => 'processed'];
+        return ['ok' => true, 'reply' => '✅ Captured to your Telegram inbox. You can open Inbox now to route it into a bucket, or leave it there for later.', 'status' => 'processed'];
     }
 }

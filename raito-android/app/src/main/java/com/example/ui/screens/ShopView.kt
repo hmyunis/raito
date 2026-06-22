@@ -39,6 +39,10 @@ fun ShopView(
 ) {
   val stats by viewModel.stats.collectAsState()
   val customAvatars by viewModel.customAvatars.collectAsState()
+  val dialogSurface = MaterialTheme.colorScheme.surface
+  val dialogCard = MaterialTheme.colorScheme.surfaceVariant
+  val dialogText = MaterialTheme.colorScheme.onSurface
+  val dialogSubtle = MaterialTheme.colorScheme.onSurfaceVariant
 
   var selectedCategory by remember { mutableStateOf("Chibis") }
   var showCreatorDialog by remember { mutableStateOf(false) }
@@ -336,7 +340,7 @@ fun ShopView(
           modifier = Modifier
             .fillMaxWidth()
             .mangaShadow(offset = 6.dp)
-            .background(BgPaperLight)
+            .background(dialogSurface)
             .mangaBorder(width = 3.dp)
             .padding(16.dp)
         ) {
@@ -394,7 +398,7 @@ fun ShopView(
           modifier = Modifier
             .fillMaxWidth()
             .mangaShadow(offset = 6.dp)
-            .background(BgPaperLight)
+            .background(dialogSurface)
             .mangaBorder()
             .clickable(enabled = false, onClick = {})
             .padding(16.dp),
@@ -404,7 +408,7 @@ fun ShopView(
             text = "CHIBI PREVIEWS",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.ExtraBold,
-            color = InkBlack
+            color = dialogText
           )
           
           val uris = if (targetObj != null) {
@@ -440,7 +444,7 @@ fun ShopView(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                   .mangaBorder()
-                  .background(Color.White)
+                  .background(dialogCard)
                   .padding(10.dp)
               ) {
                 Box(
@@ -448,20 +452,20 @@ fun ShopView(
                     .fillMaxWidth()
                     .aspectRatio(1f)
                     .mangaBorder(1.dp)
-                    .background(BgPaperLight),
+                    .background(dialogSurface),
                   contentAlignment = Alignment.Center
                 ) {
                   if (uri != null) {
                     AsyncImage(model = uri, contentDescription = label, modifier = Modifier.fillMaxSize(0.82f))
                   } else {
-                    Icon(imageVector = Icons.Default.Face, contentDescription = label, tint = InkGrayDark, modifier = Modifier.size(34.dp))
+                    Icon(imageVector = Icons.Default.Face, contentDescription = label, tint = dialogSubtle, modifier = Modifier.size(34.dp))
                   }
                 }
                 Text(
                   text = label,
                   style = MaterialTheme.typography.bodySmall,
                   fontWeight = FontWeight.Bold,
-                  color = InkBlack,
+                  color = dialogText,
                   textAlign = TextAlign.Center
                 )
               }

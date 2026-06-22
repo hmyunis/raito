@@ -17,6 +17,23 @@ data class HealthResponse(
   val version: String? = null
 )
 
+data class AndroidAppUpdateDto(
+  val platform: String,
+  val prompt_enabled: Boolean,
+  val latest_version: String,
+  val min_supported_version: String? = null,
+  val download_url: String,
+  val release_title: String? = null,
+  val release_notes: List<String> = emptyList(),
+  val published_at: String? = null
+)
+
+data class AndroidAppUpdateResponse(
+  val ok: Boolean,
+  val update: AndroidAppUpdateDto? = null,
+  val error: ErrorDto? = null
+)
+
 data class RegisterDeviceRequest(
   val display_name: String,
   val device_label: String
@@ -98,6 +115,34 @@ data class GenericResponse(
   val error: ErrorDto? = null
 )
 
+data class TelegramTaskOperationDto(
+  val operation_id: String,
+  val operation_type: String,
+  val target_bucket_client_id: Int,
+  val target_task_client_id: Int? = null,
+  val task_name: String? = null,
+  val desired_completion: Boolean? = null,
+  val created_at: String? = null
+)
+
+data class TelegramTaskOperationsResponse(
+  val ok: Boolean,
+  val pending_count: Int,
+  val operations: List<TelegramTaskOperationDto> = emptyList(),
+  val error: ErrorDto? = null
+)
+
+data class TelegramTaskOperationAckDto(
+  val operation_id: String,
+  val status: String,
+  val client_created_task_id: Int? = null,
+  val error_message: String? = null
+)
+
+data class TelegramTaskOperationsAckRequest(
+  val operations: List<TelegramTaskOperationAckDto>
+)
+
 data class SyncedBucketTaskSnapshotDto(
   val task_id: Int,
   val name: String,
@@ -139,6 +184,9 @@ interface RaitoApiService {
   @GET("api/health")
   suspend fun getHealth(): HealthResponse
 
+  @GET("api/app-update/android")
+  suspend fun getAndroidAppUpdate(@Query("version") version: String? = null): AndroidAppUpdateResponse
+
   @POST("api/auth/register-device")
   suspend fun registerDevice(@Body request: RegisterDeviceRequest): RegisterDeviceResponse
 
@@ -164,6 +212,18 @@ interface RaitoApiService {
   suspend fun discardPanels(
     @Header("Authorization") bearerToken: String,
     @Body request: DiscardPanelsRequest
+  ): GenericResponse
+
+  @GET("api/telegram/task-operations/pending")
+  suspend fun getPendingTelegramTaskOperations(
+    @Header("Authorization") bearerToken: String,
+    @Query("limit") limit: Int = 100
+  ): TelegramTaskOperationsResponse
+
+  @POST("api/telegram/task-operations/acknowledge")
+  suspend fun acknowledgeTelegramTaskOperations(
+    @Header("Authorization") bearerToken: String,
+    @Body request: TelegramTaskOperationsAckRequest
   ): GenericResponse
 
   @POST("api/telegram/synced-buckets/snapshot")

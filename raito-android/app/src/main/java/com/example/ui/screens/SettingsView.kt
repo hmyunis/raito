@@ -1183,7 +1183,7 @@ fun SettingsView(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-          text = "RAITO ENGINE VERSION 1.0.0",
+          text = "RAITO ENGINE VERSION ${com.example.BuildConfig.VERSION_NAME}",
           style = MaterialTheme.typography.labelSmall,
           color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
           fontWeight = FontWeight.Bold,

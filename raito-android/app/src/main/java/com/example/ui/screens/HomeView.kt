@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -37,6 +38,7 @@ fun HomeView(
   val chapters by viewModel.chapters.collectAsState()
   val tasks by viewModel.tasks.collectAsState()
   val stats by viewModel.stats.collectAsState()
+  val isHomeDataReady by viewModel.isHomeDataReady.collectAsState()
 
   val uncompletedTasks = remember(tasks) { tasks.filter { !it.isCompleted } }
   val dueSoonCount = uncompletedTasks.size
@@ -102,6 +104,14 @@ fun HomeView(
       .starryTwinkleBackground()
   ) {
     val isLandscape = maxWidth > maxHeight || maxWidth > 600.dp
+
+    if (!isHomeDataReady) {
+      HomeLoadingSkeleton(
+        isLandscape = isLandscape,
+        modifier = Modifier.fillMaxSize()
+      )
+      return@BoxWithConstraints
+    }
 
     if (isLandscape) {
       Row(
@@ -492,6 +502,257 @@ fun HomeView(
       }
     )
   }
+}
+
+@Composable
+private fun HomeLoadingSkeleton(
+  isLandscape: Boolean,
+  modifier: Modifier = Modifier
+) {
+  if (isLandscape) {
+    Row(
+      modifier = modifier.padding(horizontal = 16.dp),
+      horizontalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+      Column(
+        modifier = Modifier
+          .weight(1.1f)
+          .fillMaxHeight()
+          .verticalScroll(rememberScrollState())
+          .padding(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+      ) {
+        Spacer(modifier = Modifier.height(12.dp))
+        HomeHeroSkeleton()
+        HomeSectionHeaderSkeleton()
+        repeat(2) { DueSoonTaskSkeleton() }
+      }
+
+      Column(
+        modifier = Modifier
+          .weight(0.9f)
+          .fillMaxHeight()
+          .verticalScroll(rememberScrollState())
+          .padding(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+      ) {
+        Spacer(modifier = Modifier.height(12.dp))
+        HomeSectionHeaderSkeleton()
+        repeat(3) { BucketChapterSkeleton() }
+      }
+    }
+  } else {
+    LazyColumn(
+      modifier = modifier.padding(horizontal = 16.dp),
+      verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+      item { Spacer(modifier = Modifier.height(8.dp)) }
+      item { HomeHeroSkeleton() }
+      item { HomeSectionHeaderSkeleton() }
+      items(2) { DueSoonTaskSkeleton() }
+      item { HomeSectionHeaderSkeleton() }
+      items(3) { BucketChapterSkeleton() }
+      item { Spacer(modifier = Modifier.height(24.dp)) }
+    }
+  }
+}
+
+@Composable
+private fun HomeHeroSkeleton() {
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .heightIn(min = 115.dp),
+    verticalAlignment = Alignment.Bottom,
+    horizontalArrangement = Arrangement.spacedBy(12.dp)
+  ) {
+    Box(
+      modifier = Modifier
+        .weight(1f)
+        .mangaShadow(offset = 4.dp)
+        .background(MaterialTheme.colorScheme.surface)
+        .mangaBorder(width = 3.dp)
+        .padding(12.dp)
+    ) {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SkeletonBlock(
+          modifier = Modifier
+            .fillMaxWidth(0.85f)
+            .height(14.dp)
+        )
+        SkeletonBlock(
+          modifier = Modifier
+            .fillMaxWidth(0.65f)
+            .height(14.dp)
+        )
+        SkeletonBlock(
+          modifier = Modifier
+            .fillMaxWidth(0.45f)
+            .height(22.dp)
+        )
+      }
+    }
+
+    SkeletonBlock(
+      modifier = Modifier
+        .size(90.dp)
+        .mangaShadow(offset = 3.dp)
+        .mangaBorder(width = 2.dp)
+    )
+  }
+}
+
+@Composable
+private fun HomeSectionHeaderSkeleton() {
+  Column(modifier = Modifier.fillMaxWidth()) {
+    SkeletonBlock(
+      modifier = Modifier
+        .fillMaxWidth(0.4f)
+        .height(24.dp)
+    )
+    Spacer(modifier = Modifier.height(4.dp))
+    SkeletonBlock(
+      modifier = Modifier
+        .fillMaxWidth()
+        .height(3.dp)
+    )
+  }
+}
+
+@Composable
+private fun DueSoonTaskSkeleton() {
+  Box(
+    modifier = Modifier
+      .fillMaxWidth()
+      .mangaShadow(offset = 3.dp)
+      .background(MaterialTheme.colorScheme.surface)
+      .mangaBorder(width = 2.dp)
+      .padding(12.dp)
+  ) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+      SkeletonBlock(
+        modifier = Modifier
+          .fillMaxWidth(0.22f)
+          .height(18.dp)
+      )
+      SkeletonBlock(
+        modifier = Modifier
+          .fillMaxWidth(0.78f)
+          .height(22.dp)
+      )
+      SkeletonBlock(
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(1.dp)
+      )
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        SkeletonBlock(
+          modifier = Modifier
+            .fillMaxWidth(0.28f)
+            .height(16.dp)
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          SkeletonBlock(modifier = Modifier.size(30.dp))
+          SkeletonBlock(modifier = Modifier.size(24.dp))
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun BucketChapterSkeleton() {
+  Box(
+    modifier = Modifier
+      .fillMaxWidth()
+      .mangaShadow(offset = 3.dp)
+      .background(MaterialTheme.colorScheme.surface)
+      .mangaBorder(width = 2.dp)
+  ) {
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .height(IntrinsicSize.Min)
+    ) {
+      SkeletonBlock(
+        modifier = Modifier
+          .width(12.dp)
+          .fillMaxHeight()
+      )
+
+      Column(
+        modifier = Modifier
+          .weight(1f)
+          .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+      ) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.Top
+        ) {
+          Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+          ) {
+            SkeletonBlock(
+              modifier = Modifier
+                .fillMaxWidth(0.22f)
+                .height(18.dp)
+            )
+            SkeletonBlock(
+              modifier = Modifier
+                .fillMaxWidth(0.58f)
+                .height(26.dp)
+            )
+          }
+          Spacer(modifier = Modifier.width(12.dp))
+          SkeletonBlock(
+            modifier = Modifier.size(54.dp)
+          )
+        }
+
+        SkeletonBlock(
+          modifier = Modifier
+            .fillMaxWidth(0.3f)
+            .height(14.dp)
+        )
+        SkeletonBlock(
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(12.dp)
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun SkeletonBlock(
+  modifier: Modifier = Modifier,
+  shape: androidx.compose.ui.graphics.Shape = MaterialTheme.shapes.small
+) {
+  val transition = rememberInfiniteTransition(label = "home_skeleton")
+  val alpha by transition.animateFloat(
+    initialValue = 0.35f,
+    targetValue = 0.75f,
+    animationSpec = infiniteRepeatable(
+      animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+      repeatMode = RepeatMode.Reverse
+    ),
+    label = "home_skeleton_alpha"
+  )
+  val baseColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+
+  Box(
+    modifier = modifier
+      .clip(shape)
+      .background(baseColor.copy(alpha = alpha))
+  )
 }
 
 @Composable

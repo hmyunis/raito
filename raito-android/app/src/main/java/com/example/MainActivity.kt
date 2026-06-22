@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
       val stats by viewModel.stats.collectAsState()
       val activeScreen by viewModel.activeScreen.collectAsState()
       val showResetProgressDialog by viewModel.showResetProgressDialog.collectAsState()
+      val appUpdateUiState by viewModel.appUpdateUiState.collectAsState()
 
       RaitoTheme(
         themeMode = stats.themeMode,
@@ -342,7 +343,7 @@ class MainActivity : ComponentActivity() {
                       verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                       Text(
-                        text = "VERSION 1.0.0",
+                        text = "VERSION ${BuildConfig.VERSION_NAME}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                         fontWeight = FontWeight.Bold,
@@ -469,6 +470,17 @@ class MainActivity : ComponentActivity() {
                 ResetProgressDialog(
                   onConfirm = { viewModel.confirmResetChapterProgress() },
                   onDismiss = { viewModel.showResetProgressDialog.value = false }
+                )
+              }
+
+              if (appUpdateUiState.isVisible && appUpdateUiState.info != null) {
+                AppUpdateDialog(
+                  state = appUpdateUiState,
+                  onDownloadClick = { viewModel.startAppUpdateDownload() },
+                  onDismiss = { viewModel.dismissAppUpdatePrompt() },
+                  onInstallClick = { viewModel.retryAppUpdateInstall() },
+                  onOpenInstallSettings = { viewModel.openAppUpdateInstallSettings() },
+                  onOpenInBrowser = { viewModel.openAppUpdateInBrowser() }
                 )
               }
 

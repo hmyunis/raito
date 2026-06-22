@@ -242,6 +242,90 @@ final class SyncedBucketService
         return (int) ($statement->fetchColumn() ?: 0);
     }
 
+    public static function bucketExistsForUser(int $userId, int $clientBucketId): bool
+    {
+        $pdo = Database::pdo();
+        $statement = $pdo->prepare('
+            SELECT 1
+            FROM synced_buckets
+            WHERE user_id = :user_id
+              AND client_bucket_id = :client_bucket_id
+            LIMIT 1
+        ');
+        $statement->execute([
+            'user_id' => $userId,
+            'client_bucket_id' => $clientBucketId,
+        ]);
+
+        return $statement->fetchColumn() !== false;
+    }
+
+    public static function findSyncedTaskForUpdate(PDO $pdo, int $userId, int $clientBucketId, int $taskClientId): ?array
+    {
+        $statement = $pdo->prepare('
+            SELECT
+                sb.id AS synced_bucket_id,
+                sb.client_bucket_id,
+                sb.is_completed AS bucket_is_completed,
+                sbt.client_task_id,
+                sbt.name,
+                sbt.is_completed
+            FROM synced_buckets sb
+            INNER JOIN synced_bucket_tasks sbt ON sbt.synced_bucket_id = sb.id
+            WHERE sb.user_id = :user_id
+              AND sb.client_bucket_id = :client_bucket_id
+              AND sbt.client_task_id = :client_task_id
+            LIMIT 1
+            FOR UPDATE
+        ');
+        $statement->execute([
+            'user_id' => $userId,
+            'client_bucket_id' => $clientBucketId,
+            'client_task_id' => $taskClientId,
+        ]);
+        $task = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $task === false ? null : $task;
+    }
+
+    public static function applyTaskCompletionToSnapshot(PDO $pdo, int $syncedBucketId, int $taskClientId, bool $isCompleted): void
+    {
+        $taskUpdate = $pdo->prepare('
+            UPDATE synced_bucket_tasks
+            SET is_completed = :is_completed
+            WHERE synced_bucket_id = :synced_bucket_id
+              AND client_task_id = :client_task_id
+        ');
+        $taskUpdate->execute([
+            'is_completed' => $isCompleted ? 1 : 0,
+            'synced_bucket_id' => $syncedBucketId,
+            'client_task_id' => $taskClientId,
+        ]);
+
+        $countStatement = $pdo->prepare('
+            SELECT
+                COUNT(*) AS total_count,
+                SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END) AS completed_count
+            FROM synced_bucket_tasks
+            WHERE synced_bucket_id = :synced_bucket_id
+        ');
+        $countStatement->execute(['synced_bucket_id' => $syncedBucketId]);
+        $counts = $countStatement->fetch(PDO::FETCH_ASSOC) ?: [];
+        $totalCount = (int) ($counts['total_count'] ?? 0);
+        $completedCount = (int) ($counts['completed_count'] ?? 0);
+        $bucketCompleted = $totalCount > 0 && $totalCount === $completedCount;
+
+        $bucketUpdate = $pdo->prepare('
+            UPDATE synced_buckets
+            SET is_completed = :is_completed
+            WHERE id = :id
+        ');
+        $bucketUpdate->execute([
+            'is_completed' => $bucketCompleted ? 1 : 0,
+            'id' => $syncedBucketId,
+        ]);
+    }
+
     public static function listBucketsForUser(int $userId, int $page, int $perPage = 6): array
     {
         $page = max(1, $page);

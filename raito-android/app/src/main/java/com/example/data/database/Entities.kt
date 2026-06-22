@@ -72,3 +72,9 @@ data class CustomAvatarEntity(
   val sadPath: String? = null,
   val completedPath: String? = null
 )
+
+@Entity(tableName = "applied_telegram_operations")
+data class AppliedTelegramOperationEntity(
+  @PrimaryKey val operationId: String,
+  val appliedAt: Long = System.currentTimeMillis()
+)

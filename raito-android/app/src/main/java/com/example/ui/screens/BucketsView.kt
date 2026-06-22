@@ -1879,7 +1879,7 @@ private fun ChibiSpeechBubble(
   }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun ChapterCard(
   chapter: ChapterEntity,
@@ -1912,146 +1912,281 @@ fun ChapterCard(
       )
       .padding(12.dp)
   ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Column(modifier = Modifier.weight(1f)) {
-        // Top tag row
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.Top
-        ) {
-          // Discipline tag
-          Box(
-            modifier = Modifier
-              .background(MaterialTheme.colorScheme.onBackground)
-              .padding(horizontal = 6.dp, vertical = 2.dp)
+    BoxWithConstraints {
+      val isCompactCard = maxWidth < 220.dp
+      val companionSize = if (isCompactCard) 52.dp else 64.dp
+      val dueCount = totalTasks - completedTasks
+
+      if (isCompactCard) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
           ) {
-            Text(
-              text = chapter.discipline.uppercase(),
-              style = MaterialTheme.typography.labelSmall,
-              fontSize = 9.sp,
-              fontWeight = FontWeight.Black,
-              color = MaterialTheme.colorScheme.background
-            )
-          }
+            FlowRow(
+              modifier = Modifier.weight(1f),
+              horizontalArrangement = Arrangement.spacedBy(6.dp),
+              verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+              Box(
+                modifier = Modifier
+                  .background(MaterialTheme.colorScheme.onBackground)
+                  .padding(horizontal = 6.dp, vertical = 2.dp)
+              ) {
+                Text(
+                  text = chapter.discipline.uppercase(),
+                  style = MaterialTheme.typography.labelSmall,
+                  fontSize = 9.sp,
+                  fontWeight = FontWeight.Black,
+                  color = MaterialTheme.colorScheme.background
+                )
+              }
 
-          if (chapter.telegramSyncEnabled) {
+              if (chapter.telegramSyncEnabled) {
+                Box(
+                  modifier = Modifier
+                    .background(AnimeTeal)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                  Text(
+                    text = "SYNC",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.Black
+                  )
+                }
+              }
+
+              if (!chapter.deadline.isNullOrEmpty()) {
+                Box(
+                  modifier = Modifier
+                    .background(AnimeRed)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                  Text(
+                    text = "CRITICAL",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                  )
+                }
+              }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
             Box(
               modifier = Modifier
-                .background(AnimeTeal)
-                .padding(horizontal = 6.dp, vertical = 2.dp)
+                .size(companionSize)
+                .mangaBorder(width = 1.5.dp, color = MaterialTheme.colorScheme.onBackground)
+                .background(MaterialTheme.colorScheme.background)
+                .padding(4.dp),
+              contentAlignment = Alignment.Center
             ) {
-              Text(
-                text = "SYNC",
-                style = MaterialTheme.typography.labelSmall,
-                fontSize = 8.sp,
-                fontWeight = FontWeight.Black,
-                color = Color.Black
+              AsyncImage(
+                model = compUrl,
+                contentDescription = "Companion Thumbnail",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit
               )
             }
           }
 
-          // Overdue / Critical Tag
-          if (!chapter.deadline.isNullOrEmpty()) {
-            Box(
-              modifier = Modifier
-                .background(AnimeRed)
-                .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-              Text(
-                text = "CRITICAL",
-                style = MaterialTheme.typography.labelSmall,
-                fontSize = 8.sp,
-                fontWeight = FontWeight.Black,
-                color = Color.White
-              )
-            }
-          }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Text(
-          text = chapter.name,
-          style = MaterialTheme.typography.titleMedium,
-          fontWeight = FontWeight.Black,
-          color = MaterialTheme.colorScheme.onSurface,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis
-        )
-
-        Text(
-          text = "$completedTasks / $totalTasks Tasks Cleared",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-          fontSize = 11.sp
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Progress stats
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically
-        ) {
           Text(
-            text = "$pct% INKED",
-            style = MaterialTheme.typography.labelSmall,
+            text = chapter.name,
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Black,
-            color = badgeColor,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+          )
+
+          Text(
+            text = "$completedTasks / $totalTasks Tasks Cleared",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
             fontSize = 11.sp
           )
 
-          val dueCount = totalTasks - completedTasks
-          if (dueCount > 0 && !chapter.deadline.isNullOrEmpty()) {
+          FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+          ) {
             Text(
-              text = "$dueCount Overdue",
+              text = "$pct% INKED",
               style = MaterialTheme.typography.labelSmall,
-              fontWeight = FontWeight.Bold,
-              color = AnimeRed,
-              fontSize = 10.sp
+              fontWeight = FontWeight.Black,
+              color = badgeColor,
+              fontSize = 11.sp
+            )
+
+            if (dueCount > 0 && !chapter.deadline.isNullOrEmpty()) {
+              Text(
+                text = "$dueCount Overdue",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = AnimeRed,
+                fontSize = 10.sp
+              )
+            }
+          }
+
+          Box(
+            modifier = Modifier
+              .fillMaxWidth()
+              .height(12.dp)
+              .mangaBorder(width = 1.5.dp, color = MaterialTheme.colorScheme.onBackground)
+              .background(MaterialTheme.colorScheme.surfaceVariant)
+          ) {
+            Box(
+              modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(if (totalTasks == 0) 0f else pct / 100f)
+                .background(badgeColor)
+                .border(width = 1.5.dp, color = MaterialTheme.colorScheme.onBackground, shape = RectangleShape)
             )
           }
         }
+      } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Column(modifier = Modifier.weight(1f)) {
+            FlowRow(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(6.dp),
+              verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+              Box(
+                modifier = Modifier
+                  .background(MaterialTheme.colorScheme.onBackground)
+                  .padding(horizontal = 6.dp, vertical = 2.dp)
+              ) {
+                Text(
+                  text = chapter.discipline.uppercase(),
+                  style = MaterialTheme.typography.labelSmall,
+                  fontSize = 9.sp,
+                  fontWeight = FontWeight.Black,
+                  color = MaterialTheme.colorScheme.background
+                )
+              }
 
-        Spacer(modifier = Modifier.height(6.dp))
+              if (chapter.telegramSyncEnabled) {
+                Box(
+                  modifier = Modifier
+                    .background(AnimeTeal)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                  Text(
+                    text = "SYNC",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.Black
+                  )
+                }
+              }
 
-        // Chunky Progress Bar
-        Box(
-          modifier = Modifier
-            .fillMaxWidth()
-            .height(12.dp)
-            .mangaBorder(width = 1.5.dp, color = MaterialTheme.colorScheme.onBackground)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-        ) {
+              if (!chapter.deadline.isNullOrEmpty()) {
+                Box(
+                  modifier = Modifier
+                    .background(AnimeRed)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                  Text(
+                    text = "CRITICAL",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                  )
+                }
+              }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+              text = chapter.name,
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Black,
+              color = MaterialTheme.colorScheme.onSurface,
+              maxLines = 2,
+              overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+              text = "$completedTasks / $totalTasks Tasks Cleared",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+              fontSize = 11.sp
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Text(
+                text = "$pct% INKED",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Black,
+                color = badgeColor,
+                fontSize = 11.sp
+              )
+
+              if (dueCount > 0 && !chapter.deadline.isNullOrEmpty()) {
+                Text(
+                  text = "$dueCount Overdue",
+                  style = MaterialTheme.typography.labelSmall,
+                  fontWeight = FontWeight.Bold,
+                  color = AnimeRed,
+                  fontSize = 10.sp
+                )
+              }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Box(
+              modifier = Modifier
+                .fillMaxWidth()
+                .height(12.dp)
+                .mangaBorder(width = 1.5.dp, color = MaterialTheme.colorScheme.onBackground)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+              Box(
+                modifier = Modifier
+                  .fillMaxHeight()
+                  .fillMaxWidth(if (totalTasks == 0) 0f else pct / 100f)
+                  .background(badgeColor)
+                  .border(width = 1.5.dp, color = MaterialTheme.colorScheme.onBackground, shape = RectangleShape)
+              )
+            }
+          }
+
+          Spacer(modifier = Modifier.width(12.dp))
+
           Box(
             modifier = Modifier
-              .fillMaxHeight()
-              .fillMaxWidth(if (totalTasks == 0) 0f else pct / 100f)
-              .background(badgeColor)
-              .border(width = 1.5.dp, color = MaterialTheme.colorScheme.onBackground, shape = RectangleShape)
-          )
+              .size(companionSize)
+              .mangaBorder(width = 1.5.dp, color = MaterialTheme.colorScheme.onBackground)
+              .background(MaterialTheme.colorScheme.background)
+              .padding(4.dp),
+            contentAlignment = Alignment.Center
+          ) {
+            AsyncImage(
+              model = compUrl,
+              contentDescription = "Companion Thumbnail",
+              modifier = Modifier.fillMaxSize(),
+              contentScale = androidx.compose.ui.layout.ContentScale.Fit
+            )
+          }
         }
-      }
-
-      Spacer(modifier = Modifier.width(12.dp))
-
-      // Companion Thumbnail Frame (Now on the right as per request)
-      Box(
-        modifier = Modifier
-          .size(64.dp)
-          .mangaBorder(width = 1.5.dp, color = MaterialTheme.colorScheme.onBackground)
-          .background(MaterialTheme.colorScheme.background)
-          .padding(4.dp),
-        contentAlignment = Alignment.Center
-      ) {
-        AsyncImage(
-          model = compUrl,
-          contentDescription = "Companion Thumbnail",
-          modifier = Modifier.fillMaxSize(),
-          contentScale = androidx.compose.ui.layout.ContentScale.Fit
-        )
       }
     }
   }

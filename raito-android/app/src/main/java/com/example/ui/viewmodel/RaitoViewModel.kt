@@ -2,14 +2,21 @@ package com.example.ui.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
+import com.example.BuildConfig
 import com.example.data.database.*
 import com.example.data.repository.RaitoRepository
 import com.example.data.network.*
 import com.example.ui.screens.NotificationHelper
+import com.example.widget.TaskWidgetProvider
+import com.example.update.AppUpdateManager
+import com.example.update.DownloadProgressState
+import com.example.update.VersionComparator
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.FlowPreview
@@ -33,17 +40,21 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
   private companion object {
     const val KEY_BUCKET_LAYOUT_MODE = "bucket_layout_mode"
     const val KEY_TIME_FORMAT_MODE = "time_format_mode"
+    const val DEFAULT_BACKEND_URL = "https://raito.hamdi.dev.et"
   }
 
   private val appPreferences = application.getSharedPreferences("raito_app_preferences", Context.MODE_PRIVATE)
+  private val appUpdateManager = AppUpdateManager(application.applicationContext)
 
   private val database = AppDatabase.getDatabase(application)
   val repository = RaitoRepository(
-    database.chapterDao(),
-    database.taskDao(),
-    database.userStatsDao(),
-    database.activityDayDao(),
-    database.customAvatarDao()
+    database = database,
+    chapterDao = database.chapterDao(),
+    taskDao = database.taskDao(),
+    userStatsDao = database.userStatsDao(),
+    activityDayDao = database.activityDayDao(),
+    customAvatarDao = database.customAvatarDao(),
+    appliedTelegramOperationDao = database.appliedTelegramOperationDao()
   )
 
   // Single-use event triggers
@@ -170,6 +181,37 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
     data class Error(val message: String) : PairingCodeState
   }
 
+  data class AppUpdateInfo(
+    val latestVersion: String,
+    val minSupportedVersion: String?,
+    val downloadUrl: String,
+    val title: String,
+    val releaseNotes: List<String>,
+    val publishedAt: String?
+  )
+
+  sealed interface AppUpdateDownloadState {
+    object Idle : AppUpdateDownloadState
+    object Preparing : AppUpdateDownloadState
+    object Queued : AppUpdateDownloadState
+    data class InProgress(
+      val percent: Int?,
+      val downloadedBytes: Long,
+      val totalBytes: Long?
+    ) : AppUpdateDownloadState
+    object ReadyToInstall : AppUpdateDownloadState
+    object Installing : AppUpdateDownloadState
+    object InstallPermissionRequired : AppUpdateDownloadState
+    data class Failed(val message: String) : AppUpdateDownloadState
+  }
+
+  data class AppUpdateUiState(
+    val isVisible: Boolean = false,
+    val isMandatory: Boolean = false,
+    val info: AppUpdateInfo? = null,
+    val downloadState: AppUpdateDownloadState = AppUpdateDownloadState.Idle
+  )
+
   private val _serverConnectionState = MutableStateFlow<ServerConnectionState>(ServerConnectionState.Disconnected)
   val serverConnectionState: StateFlow<ServerConnectionState> = _serverConnectionState.asStateFlow()
 
@@ -178,9 +220,14 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
 
   private val _pairingCodeState = MutableStateFlow<PairingCodeState>(PairingCodeState.Idle)
   val pairingCodeState: StateFlow<PairingCodeState> = _pairingCodeState.asStateFlow()
+  private val _appUpdateUiState = MutableStateFlow(AppUpdateUiState())
+  val appUpdateUiState: StateFlow<AppUpdateUiState> = _appUpdateUiState.asStateFlow()
+  private val _isHomeDataReady = MutableStateFlow(false)
+  val isHomeDataReady: StateFlow<Boolean> = _isHomeDataReady.asStateFlow()
 
   private var timerJob: Job? = null
   private var lastSyncedBucketSnapshotSignature: String? = null
+  private var appUpdateMonitorJob: Job? = null
 
   private data class TelegramBucketSyncConfig(
     val backendBaseUrl: String,
@@ -205,9 +252,18 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       stats.collectLatest { s ->
         if (s.backendDeviceToken.isNotBlank() && _serverConnectionState.value is ServerConnectionState.Disconnected) {
-          silentCheckConnection("https://raito.hamdi.dev.et", s.backendDeviceToken)
+          silentCheckConnection(s.backendBaseUrl.ifBlank { DEFAULT_BACKEND_URL }, s.backendDeviceToken)
         }
       }
+    }
+
+    viewModelScope.launch {
+      stats
+        .map { it.backendBaseUrl.ifBlank { DEFAULT_BACKEND_URL } }
+        .distinctUntilChanged()
+        .collectLatest { backendBaseUrl ->
+          checkForAppUpdate(backendBaseUrl)
+        }
     }
 
     // Background Auto-sync loop
@@ -215,9 +271,13 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
       while (true) {
         delay(40000) // timer pool check every 40 seconds
         val s = stats.value
-        if (s.autoSyncEnabled && s.backendDeviceToken.isNotBlank()) {
+        if (s.backendDeviceToken.isNotBlank()) {
           try {
-            val api = RaitoApiService.create("https://raito.hamdi.dev.et")
+            val api = RaitoApiService.create(s.backendBaseUrl.ifBlank { DEFAULT_BACKEND_URL })
+            syncPendingTelegramTaskOperations(api, s)
+            if (!s.autoSyncEnabled) {
+              continue
+            }
             val resp = api.getPendingPanels("Bearer ${s.backendDeviceToken}")
             if (resp.ok && !resp.panels.isNullOrEmpty()) {
               val currentChapters = chapters.value
@@ -236,13 +296,14 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
                     )
                   )
                 }
+                notifyTaskWidgetChanged()
                 
                 api.markImported(
                   "Bearer ${s.backendDeviceToken}",
                   MarkImportedRequest(
                     panel_ids = resp.panels.map { it.remote_panel_id },
                     client_sync_id = "autosync-${System.currentTimeMillis()}",
-                    app_version = "1.0.0"
+                    app_version = appVersionName()
                   )
                 )
 
@@ -277,18 +338,31 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
           syncTelegramBucketSnapshot(chaptersList, tasksList, config)
         }
     }
+
+    viewModelScope.launch {
+      combine(
+        repository.allChapters.take(1),
+        repository.allTasks.take(1),
+        repository.userStats.take(1),
+        repository.allCustomAvatars.take(1)
+      ) { _, _, _, _ -> true }
+        .collect {
+          _isHomeDataReady.value = true
+        }
+    }
   }
 
   private fun silentCheckConnection(url: String, token: String) {
     viewModelScope.launch {
       try {
-        val api = RaitoApiService.create("https://raito.hamdi.dev.et")
+        val api = RaitoApiService.create(url.ifBlank { DEFAULT_BACKEND_URL })
         val resp = api.checkMe("Bearer $token")
         if (resp.ok && resp.user != null) {
           _serverConnectionState.value = ServerConnectionState.Connected(
             deviceName = resp.user.device_label ?: resp.user.display_name ?: "Android Device",
             lastSeen = resp.user.last_seen_at
           )
+          syncTelegramTaskOperationsOnce()
         } else {
           _serverConnectionState.value = ServerConnectionState.Error(resp.error?.message ?: "Check failed.")
         }
@@ -302,12 +376,13 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
     _serverConnectionState.value = ServerConnectionState.Connecting
     viewModelScope.launch {
       try {
-        val api = RaitoApiService.create("https://raito.hamdi.dev.et")
+        val resolvedUrl = url.ifBlank { DEFAULT_BACKEND_URL }
+        val api = RaitoApiService.create(resolvedUrl)
         val resp = api.checkMe("Bearer $token")
         if (resp.ok && resp.user != null) {
           repository.updateStats(
             stats.value.copy(
-              backendBaseUrl = "https://raito.hamdi.dev.et",
+              backendBaseUrl = resolvedUrl,
               backendDeviceToken = token,
               telegramDeviceName = resp.user.device_label ?: resp.user.display_name ?: "Android Device"
             )
@@ -316,6 +391,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
             deviceName = resp.user.device_label ?: resp.user.display_name ?: "Android Device",
             lastSeen = resp.user.last_seen_at
           )
+          syncTelegramTaskOperationsOnce()
           _uiEvents.emit(UiEvent.ShowUndoSnackbar("Successfully connected to Raito Cloud backend!", -1))
           onComplete(true)
         } else {
@@ -335,12 +411,13 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
     _serverConnectionState.value = ServerConnectionState.Connecting
     viewModelScope.launch {
       try {
-        val api = RaitoApiService.create("https://raito.hamdi.dev.et")
+        val resolvedUrl = url.ifBlank { DEFAULT_BACKEND_URL }
+        val api = RaitoApiService.create(resolvedUrl)
         val resp = api.registerDevice(RegisterDeviceRequest(display_name = displayName, device_label = deviceLabel))
         if (resp.ok && resp.device_token != null) {
           repository.updateStats(
             stats.value.copy(
-              backendBaseUrl = "https://raito.hamdi.dev.et",
+              backendBaseUrl = resolvedUrl,
               backendDeviceToken = resp.device_token,
               telegramDeviceName = resp.user?.device_label ?: resp.user?.display_name ?: "Android Device"
             )
@@ -349,6 +426,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
             deviceName = resp.user?.device_label ?: resp.user?.display_name ?: "Android Device",
             lastSeen = "Just registered"
           )
+          syncTelegramTaskOperationsOnce()
           _uiEvents.emit(UiEvent.ShowUndoSnackbar("Registered new companion device on server!", -1))
         } else {
           val errMsg = resp.error?.message ?: "Registration failed."
@@ -378,7 +456,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
 
   fun generatePairingCode() {
     val token = stats.value.backendDeviceToken
-    val url = "https://raito.hamdi.dev.et"
+    val url = stats.value.backendBaseUrl.ifBlank { DEFAULT_BACKEND_URL }
     if (token.isBlank()) {
       _pairingCodeState.value = PairingCodeState.Error("Device is not connected to any server.")
       return
@@ -387,7 +465,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
     _pairingCodeState.value = PairingCodeState.Loading
     viewModelScope.launch {
       try {
-        val api = RaitoApiService.create("https://raito.hamdi.dev.et")
+        val api = RaitoApiService.create(url)
         val resp = api.createPairingCode("Bearer $token")
         if (resp.ok && resp.pairing != null) {
           _pairingCodeState.value = PairingCodeState.Success(
@@ -405,7 +483,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
 
   fun fetchPendingPanels() {
     val token = stats.value.backendDeviceToken
-    val url = "https://raito.hamdi.dev.et"
+    val url = stats.value.backendBaseUrl.ifBlank { DEFAULT_BACKEND_URL }
     if (token.isBlank()) {
       _pendingPanelsState.value = PendingPanelsState.Idle
       return
@@ -414,7 +492,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
     _pendingPanelsState.value = PendingPanelsState.Loading
     viewModelScope.launch {
       try {
-        val api = RaitoApiService.create("https://raito.hamdi.dev.et")
+        val api = RaitoApiService.create(url)
         val resp = api.getPendingPanels("Bearer $token")
         if (resp.ok && resp.panels != null) {
           _pendingPanelsState.value = PendingPanelsState.Success(resp.panels)
@@ -429,7 +507,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
 
   fun importPanelAsTask(panel: RemotePanelDto, targetChapterId: Int) {
     val token = stats.value.backendDeviceToken
-    val url = "https://raito.hamdi.dev.et"
+    val url = stats.value.backendBaseUrl.ifBlank { DEFAULT_BACKEND_URL }
     viewModelScope.launch {
       try {
         // 1. Create task locally
@@ -442,16 +520,17 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
             createdAt = System.currentTimeMillis()
           )
         )
+        notifyTaskWidgetChanged()
 
         // 2. Mark imported on server
         if (token.isNotBlank()) {
-          val api = RaitoApiService.create("https://raito.hamdi.dev.et")
+          val api = RaitoApiService.create(url)
           api.markImported(
             "Bearer $token",
             MarkImportedRequest(
               panel_ids = listOf(panel.remote_panel_id),
               client_sync_id = "import-${System.currentTimeMillis()}",
-              app_version = "1.0.0"
+              app_version = appVersionName()
             )
           )
           // 3. Refresh pending panels list
@@ -467,12 +546,12 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
 
   fun discardPanel(panel: RemotePanelDto) {
     val token = stats.value.backendDeviceToken
-    val url = "https://raito.hamdi.dev.et"
+    val url = stats.value.backendBaseUrl.ifBlank { DEFAULT_BACKEND_URL }
     if (token.isBlank()) return
 
     viewModelScope.launch {
       try {
-        val api = RaitoApiService.create("https://raito.hamdi.dev.et")
+        val api = RaitoApiService.create(url)
         val resp = api.discardPanels("Bearer $token", DiscardPanelsRequest(panel_ids = listOf(panel.remote_panel_id)))
         if (resp.ok) {
           _uiEvents.emit(UiEvent.ShowUndoSnackbar("Discarded Telegram panel.", -1))
@@ -483,6 +562,142 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
       } catch (e: Exception) {
         _uiEvents.emit(UiEvent.ShowUndoSnackbar("Network failure card clean.", -1))
       }
+    }
+  }
+
+  private suspend fun syncPendingTelegramTaskOperations(
+    api: RaitoApiService,
+    currentStats: UserStatsEntity
+  ) {
+    val response = api.getPendingTelegramTaskOperations(
+      bearerToken = "Bearer ${currentStats.backendDeviceToken}",
+      limit = 100
+    )
+
+    if (!response.ok || response.operations.isEmpty()) {
+      return
+    }
+
+    val acknowledgements = mutableListOf<TelegramTaskOperationAckDto>()
+
+    for (operation in response.operations) {
+      if (repository.hasAppliedTelegramOperation(operation.operation_id)) {
+        acknowledgements += TelegramTaskOperationAckDto(
+          operation_id = operation.operation_id,
+          status = "applied"
+        )
+        continue
+      }
+
+      val ack = applyTelegramTaskOperation(operation)
+      acknowledgements += ack
+      if (ack.status == "applied") {
+        repository.markTelegramOperationApplied(operation.operation_id)
+      }
+    }
+
+    if (acknowledgements.isNotEmpty()) {
+      api.acknowledgeTelegramTaskOperations(
+        bearerToken = "Bearer ${currentStats.backendDeviceToken}",
+        request = TelegramTaskOperationsAckRequest(operations = acknowledgements)
+      )
+    }
+  }
+
+  private fun syncTelegramTaskOperationsOnce() {
+    val currentStats = stats.value
+    if (currentStats.backendDeviceToken.isBlank()) return
+
+    viewModelScope.launch {
+      try {
+        val api = RaitoApiService.create(currentStats.backendBaseUrl.ifBlank { DEFAULT_BACKEND_URL })
+        syncPendingTelegramTaskOperations(api, currentStats)
+      } catch (_: Exception) {
+      }
+    }
+  }
+
+  private suspend fun applyTelegramTaskOperation(
+    operation: TelegramTaskOperationDto
+  ): TelegramTaskOperationAckDto {
+    return try {
+      when (operation.operation_type) {
+        "create_task" -> {
+          val targetBucketId = operation.target_bucket_client_id
+          val chapter = repository.getChapterById(targetBucketId)
+          val taskName = operation.task_name?.trim().orEmpty()
+
+          if (chapter == null) {
+            TelegramTaskOperationAckDto(
+              operation_id = operation.operation_id,
+              status = "failed",
+              error_message = "Target bucket no longer exists on this device."
+            )
+          } else if (taskName.isBlank()) {
+            TelegramTaskOperationAckDto(
+              operation_id = operation.operation_id,
+              status = "ignored",
+              error_message = "Task name was empty."
+            )
+          } else {
+            val createdTaskId = repository.insertTask(
+              TaskEntity(
+                chapterId = chapter.id,
+                name = taskName,
+                timeRemaining = "Today",
+                isCompleted = false,
+                createdAt = System.currentTimeMillis()
+              )
+            ).toInt()
+            notifyTaskWidgetChanged()
+
+            TelegramTaskOperationAckDto(
+              operation_id = operation.operation_id,
+              status = "applied",
+              client_created_task_id = createdTaskId
+            )
+          }
+        }
+
+        "set_task_completion" -> {
+          val taskId = operation.target_task_client_id
+          val desiredCompletion = operation.desired_completion
+          if (taskId == null || desiredCompletion == null) {
+            TelegramTaskOperationAckDto(
+              operation_id = operation.operation_id,
+              status = "ignored",
+              error_message = "Task completion payload was incomplete."
+            )
+          } else {
+            val task = repository.getTaskById(taskId)
+            if (task == null) {
+              TelegramTaskOperationAckDto(
+                operation_id = operation.operation_id,
+                status = "failed",
+                error_message = "Target task no longer exists on this device."
+              )
+            } else {
+              setTaskCompletionState(taskId, desiredCompletion)
+              TelegramTaskOperationAckDto(
+                operation_id = operation.operation_id,
+                status = "applied"
+              )
+            }
+          }
+        }
+
+        else -> TelegramTaskOperationAckDto(
+          operation_id = operation.operation_id,
+          status = "ignored",
+          error_message = "Unsupported operation type: ${operation.operation_type}"
+        )
+      }
+    } catch (exception: Exception) {
+      TelegramTaskOperationAckDto(
+        operation_id = operation.operation_id,
+        status = "failed",
+        error_message = exception.localizedMessage ?: "Failed to apply operation."
+      )
     }
   }
 
@@ -559,6 +774,8 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
         )
       }
 
+      notifyTaskWidgetChanged()
+
       clearChapterForm()
       _activeScreen.value = AppScreen.HOME
     }
@@ -597,48 +814,18 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
   )
 
   private suspend fun setTaskCompletionState(taskId: Int, shouldComplete: Boolean): TaskCompletionResult {
-    var completedTaskName: String? = null
-    var milestoneCompanionId: String? = null
-
-    database.withTransaction {
-      val currentTask = repository.getTaskById(taskId) ?: return@withTransaction
-      if (currentTask.isCompleted == shouldComplete) return@withTransaction
-
-      repository.updateTask(currentTask.copy(isCompleted = shouldComplete))
-      val chapter = repository.getChapterById(currentTask.chapterId)
-
-      if (shouldComplete) {
-        repository.addPoints(getXpReward("task"))
-        repository.incrementClearedTasks()
-        completedTaskName = currentTask.name
-
-        val chapterTasks = repository.getTasksForChapterSnapshot(currentTask.chapterId)
-        val chapterJustCompleted = chapterTasks.isNotEmpty() && chapterTasks.all { it.isCompleted }
-        if (chapter != null && chapterJustCompleted && !chapter.isCompleted) {
-          repository.updateChapter(chapter.copy(isCompleted = true))
-          repository.addPoints(getXpReward("chapter"))
-          milestoneCompanionId = chapter.companionId
-        }
-      } else {
-        repository.addPoints(-getXpReward("task"))
-        repository.decrementClearedTasks()
-
-        if (chapter != null && chapter.isCompleted) {
-          repository.updateChapter(chapter.copy(isCompleted = false))
-          repository.addPoints(-getXpReward("chapter"))
-        }
-      }
-    }
-
+    val result = repository.setTaskCompletionState(taskId, shouldComplete)
+    notifyTaskWidgetChanged()
     return TaskCompletionResult(
-      completedTaskName = completedTaskName,
-      milestoneCompanionId = milestoneCompanionId
+      completedTaskName = result.completedTaskName,
+      milestoneCompanionId = result.milestoneCompanionId
     )
   }
 
   fun deleteTask(taskId: Int) {
     viewModelScope.launch {
       repository.deleteTask(taskId)
+      notifyTaskWidgetChanged()
     }
   }
 
@@ -651,6 +838,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
       if (editingChapterId.value == chapterId) {
         clearChapterForm()
       }
+      notifyTaskWidgetChanged()
       _activeScreen.value = AppScreen.BUCKETS
     }
   }
@@ -660,12 +848,14 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
       val chapter = repository.getChapterById(chapterId) ?: return@launch
       if (chapter.telegramSyncEnabled == enabled) return@launch
       repository.updateChapter(chapter.copy(telegramSyncEnabled = enabled))
+      notifyTaskWidgetChanged()
     }
   }
 
   fun toggleTaskPin(task: TaskEntity) {
     viewModelScope.launch {
       repository.updateTask(task.copy(isPinned = !task.isPinned))
+      notifyTaskWidgetChanged()
     }
   }
 
@@ -682,6 +872,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
           dueDatetime = dueDatetime
         )
       )
+      notifyTaskWidgetChanged()
     }
   }
 
@@ -701,6 +892,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
           dueDatetime = taskDueDatetimeInput.value.trim().ifEmpty { null }
         )
       )
+      notifyTaskWidgetChanged()
       
       // clear state
       taskNameInput.value = ""
@@ -840,6 +1032,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
 
       showResetProgressDialog.value = false
       chapterIdToReset.value = null
+      notifyTaskWidgetChanged()
     }
   }
 
@@ -1001,7 +1194,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
           unlockedCompanions = statsObj.optString("unlockedCompanions", "Cyber"),
           difficulty = statsObj.optString("difficulty", "Medium"),
           lastStreakClaimedDate = statsObj.optString("lastStreakClaimedDate", ""),
-          backendBaseUrl = statsObj.optString("backendBaseUrl", "https://raito.hamdi.dev.et"),
+          backendBaseUrl = statsObj.optString("backendBaseUrl", DEFAULT_BACKEND_URL),
           backendDeviceToken = statsObj.optString("backendDeviceToken", ""),
           telegramDeviceName = statsObj.optString("telegramDeviceName", ""),
           autoSyncEnabled = statsObj.optBoolean("autoSyncEnabled", false),
@@ -1054,6 +1247,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         _activeTask.value = null
+        notifyTaskWidgetChanged()
         onComplete(true)
       } catch (e: Exception) {
         e.printStackTrace()
@@ -1237,6 +1431,7 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
   fun resetAllDatabaseData() {
     viewModelScope.launch {
       repository.resetAllData()
+      notifyTaskWidgetChanged()
     }
   }
 
@@ -1312,6 +1507,218 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
+  private fun notifyTaskWidgetChanged() {
+    TaskWidgetProvider.updateAllWidgets(getApplication())
+  }
+
+  fun dismissAppUpdatePrompt() {
+    val currentState = _appUpdateUiState.value
+    if (!currentState.isMandatory) {
+      _appUpdateUiState.value = currentState.copy(isVisible = false)
+    }
+  }
+
+  fun startAppUpdateDownload() {
+    val info = _appUpdateUiState.value.info ?: return
+
+    appUpdateMonitorJob?.cancel()
+    _appUpdateUiState.value = _appUpdateUiState.value.copy(
+      isVisible = true,
+      downloadState = AppUpdateDownloadState.Preparing
+    )
+
+    viewModelScope.launch {
+      val downloadId = runCatching {
+        appUpdateManager.startDownload(
+          version = info.latestVersion,
+          title = info.title,
+          downloadUrl = info.downloadUrl
+        )
+      }.getOrElse { error ->
+        _appUpdateUiState.value = _appUpdateUiState.value.copy(
+          downloadState = AppUpdateDownloadState.Failed(
+            error.localizedMessage ?: "Unable to start the update download."
+          )
+        )
+        return@launch
+      }
+
+      monitorAppUpdateDownload(downloadId)
+    }
+  }
+
+  fun retryAppUpdateInstall() {
+    val downloadId = appUpdateManager.getTrackedDownloadId() ?: return
+    if (!appUpdateManager.canRequestPackageInstalls()) {
+      _appUpdateUiState.value = _appUpdateUiState.value.copy(
+        downloadState = AppUpdateDownloadState.InstallPermissionRequired
+      )
+      return
+    }
+
+    _appUpdateUiState.value = _appUpdateUiState.value.copy(downloadState = AppUpdateDownloadState.Installing)
+    val result = appUpdateManager.launchInstaller(downloadId)
+    if (result.isFailure) {
+      _appUpdateUiState.value = _appUpdateUiState.value.copy(
+        downloadState = AppUpdateDownloadState.Failed(
+          result.exceptionOrNull()?.localizedMessage ?: "Unable to launch the installer."
+        )
+      )
+    }
+  }
+
+  fun openAppUpdateInstallSettings() {
+    appUpdateManager.openUnknownSourcesSettings()
+  }
+
+  fun openAppUpdateInBrowser() {
+    val downloadUrl = _appUpdateUiState.value.info?.downloadUrl ?: return
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    getApplication<Application>().startActivity(intent)
+  }
+
+  private fun checkForAppUpdate(backendBaseUrl: String) {
+    appUpdateMonitorJob?.cancel()
+
+    viewModelScope.launch {
+      try {
+        val response = RaitoApiService
+          .create(backendBaseUrl)
+          .getAndroidAppUpdate(version = appVersionName())
+
+        val updateDto = response.update
+        if (updateDto == null) {
+          if (appUpdateManager.getTrackedDownloadId() == null) {
+            _appUpdateUiState.value = AppUpdateUiState()
+          }
+          return@launch
+        }
+
+        val isNewerVersionAvailable = VersionComparator.compare(updateDto.latest_version, appVersionName()) > 0
+        val isMandatory = updateDto.min_supported_version?.let {
+          VersionComparator.compare(appVersionName(), it) < 0
+        } ?: false
+
+        if (!isNewerVersionAvailable && !isMandatory) {
+          appUpdateManager.clearTracking()
+          _appUpdateUiState.value = AppUpdateUiState()
+          return@launch
+        }
+
+        if (!updateDto.prompt_enabled && !isMandatory) {
+          _appUpdateUiState.value = AppUpdateUiState()
+          return@launch
+        }
+
+        val info = updateDto.toAppUpdateInfo()
+        _appUpdateUiState.value = AppUpdateUiState(
+          isVisible = true,
+          isMandatory = isMandatory,
+          info = info,
+          downloadState = AppUpdateDownloadState.Idle
+        )
+
+        appUpdateManager.getTrackedDownloadId()?.let { trackedId ->
+          val tracked = appUpdateManager.getTrackedUpdate()
+          if (tracked != null && tracked.version == info.latestVersion) {
+            monitorAppUpdateDownload(trackedId)
+          }
+        }
+      } catch (_: Exception) {
+        restoreTrackedAppUpdateIfPossible()
+      }
+    }
+  }
+
+  private fun restoreTrackedAppUpdateIfPossible() {
+    val trackedDownloadId = appUpdateManager.getTrackedDownloadId() ?: return
+    val tracked = appUpdateManager.getTrackedUpdate() ?: return
+
+    _appUpdateUiState.value = AppUpdateUiState(
+      isVisible = true,
+      isMandatory = false,
+      info = AppUpdateInfo(
+        latestVersion = tracked.version,
+        minSupportedVersion = null,
+        downloadUrl = tracked.downloadUrl,
+        title = tracked.title,
+        releaseNotes = emptyList(),
+        publishedAt = null
+      ),
+      downloadState = AppUpdateDownloadState.Preparing
+    )
+    monitorAppUpdateDownload(trackedDownloadId)
+  }
+
+  private fun monitorAppUpdateDownload(downloadId: Long) {
+    appUpdateMonitorJob?.cancel()
+    appUpdateMonitorJob = viewModelScope.launch {
+      while (true) {
+        when (val progress = appUpdateManager.queryDownloadProgress(downloadId)) {
+          DownloadProgressState.Idle -> {
+            _appUpdateUiState.value = _appUpdateUiState.value.copy(
+              downloadState = AppUpdateDownloadState.Idle
+            )
+            return@launch
+          }
+          DownloadProgressState.Enqueued -> {
+            _appUpdateUiState.value = _appUpdateUiState.value.copy(
+              isVisible = true,
+              downloadState = AppUpdateDownloadState.Queued
+            )
+          }
+          is DownloadProgressState.Running -> {
+            _appUpdateUiState.value = _appUpdateUiState.value.copy(
+              isVisible = true,
+              downloadState = AppUpdateDownloadState.InProgress(
+                percent = progress.percent,
+                downloadedBytes = progress.downloadedBytes,
+                totalBytes = progress.totalBytes
+              )
+            )
+          }
+          is DownloadProgressState.Failed -> {
+            _appUpdateUiState.value = _appUpdateUiState.value.copy(
+              isVisible = true,
+              downloadState = AppUpdateDownloadState.Failed(progress.message)
+            )
+            return@launch
+          }
+          is DownloadProgressState.ReadyToInstall -> {
+            if (!appUpdateManager.canRequestPackageInstalls()) {
+              _appUpdateUiState.value = _appUpdateUiState.value.copy(
+                isVisible = true,
+                downloadState = AppUpdateDownloadState.InstallPermissionRequired
+              )
+              return@launch
+            }
+
+            _appUpdateUiState.value = _appUpdateUiState.value.copy(
+              isVisible = true,
+              downloadState = AppUpdateDownloadState.ReadyToInstall
+            )
+            return@launch
+          }
+        }
+
+        delay(500)
+      }
+    }
+  }
+
+  private fun AndroidAppUpdateDto.toAppUpdateInfo(): AppUpdateInfo {
+    return AppUpdateInfo(
+      latestVersion = latest_version,
+      minSupportedVersion = min_supported_version,
+      downloadUrl = download_url,
+      title = release_title?.takeIf { it.isNotBlank() } ?: "Raito $latest_version",
+      releaseNotes = release_notes,
+      publishedAt = published_at
+    )
+  }
+
+  private fun appVersionName(): String = BuildConfig.VERSION_NAME
+
   private suspend fun syncTelegramBucketSnapshot(
     chaptersList: List<ChapterEntity>,
     tasksList: List<TaskEntity>,
@@ -1368,9 +1775,9 @@ class RaitoViewModel(application: Application) : AndroidViewModel(application) {
       val request = SyncedBucketsSnapshotRequest(
         buckets = syncedBuckets,
         client_sync_id = "bucket-snapshot-${System.currentTimeMillis()}",
-        app_version = "1.0.0"
+        app_version = appVersionName()
       )
-      val api = RaitoApiService.create(config.backendBaseUrl.ifBlank { "https://raito.hamdi.dev.et" })
+      val api = RaitoApiService.create(config.backendBaseUrl.ifBlank { DEFAULT_BACKEND_URL })
       val response = api.syncSyncedBucketsSnapshot(
         bearerToken = "Bearer ${config.backendDeviceToken}",
         request = request

@@ -78,6 +78,12 @@ Core ideas:
   - Fetch pending Telegram messages.
   - Import selected messages as local tasks.
   - Mark imported or discarded messages on the server.
+- Telegram bot task control:
+  - Browse a Telegram inbox of captured messages.
+  - Route inbox items into a synced bucket from inline bot buttons.
+  - Browse synced buckets and mark tasks done or undone from Telegram.
+  - Let the Android app pull and apply queued Telegram task operations safely.
+- Launch-time in-app update prompts with optional mandatory upgrades and APK download progress.
 
 ### Backend
 
@@ -264,6 +270,7 @@ Key backend endpoints:
 
 ```txt
 GET  /api/health
+GET  /api/app-update/android
 GET  /api/db-check
 POST /api/auth/register-device
 GET  /api/me
@@ -272,6 +279,8 @@ POST /api/telegram/webhook
 GET  /api/telegram/pending-panels
 POST /api/telegram/mark-imported
 POST /api/telegram/discard-panels
+GET  /api/telegram/task-operations/pending
+POST /api/telegram/task-operations/acknowledge
 POST /api/events
 POST /api/events/batch
 GET  /api/admin/stats
